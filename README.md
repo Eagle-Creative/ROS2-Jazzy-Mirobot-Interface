@@ -29,7 +29,7 @@ This repository is specifically designed to work with **ROS 2 Jazzy** and is not
 2. Install the `serial_driver` package:
    ```bash
    sudo apt update
-   sudo apt install ros-humble-serial-driver
+   sudo apt install ros-jazzy-serial-driver
    ```
 
 3. Build the workspace:
@@ -44,8 +44,7 @@ This repository is specifically designed to work with **ROS 2 Jazzy** and is not
 
 5. Make the necessary scripts executable:
    ```bash
-   chmod +x src/mirobot_description/launch/mirobot_description.launch.py
-   chmod +x src/mirobot_description/launch/mirobot_isaac_control.launch.py
+   chmod +x src/mirobot_interface/launch/mirobot_interface.launch.py
    ```
 
 ## Usage
