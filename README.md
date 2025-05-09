@@ -8,36 +8,11 @@ This project provides a ROS 2 interface for controlling the Wlkata Mirobot robot
 - **Joint State Subscription**: Subscribe to joint states and convert them into G-code commands.
 - **End Effector Control**: Control the state of the end effector using custom messages.
 - **Homing Functionality**: Perform homing operations to initialize the robot.
-
-## Project Structure
-
-```
-LICENSE
-README.md
-build/
-    COLCON_IGNORE
-    mirobot_description/
-        AMENT_IGNORE
-        ...
-    mirobot_interfaces/
-        AMENT_IGNORE
-        ...
-    mirobot_msgs/
-        ...
-install/
-    _local_setup_util_ps1.py
-    ...
-src/
-    mirobot_description/
-    mirobot_interfaces/
-    mirobot_msgs/
-```
-
-### Key Directories
-
-- **`src/mirobot_description`**: Contains the URDF files, launch files, and nodes for controlling the Mirobot.
-- **`src/mirobot_interfaces`**: Implements the G-code writer node and serial communication logic.
-- **`src/mirobot_msgs`**: Defines custom ROS 2 messages for the project.
+- **Graphical User Interface (GUI)**: The `mirobot_interfaces` package includes a user-friendly GUI for controlling the Mirobot. The GUI allows users to:
+  - Send G-code commands directly.
+  - Monitor the robot's joint states in real-time.
+  - Control the end effector with intuitive buttons.
+  - Perform homing operations with a single click.
 
 ## Installation
 
@@ -91,6 +66,37 @@ This project depends on the following ROS 2 packages:
 ## Custom Messages
 
 The project defines a custom message, `EndeffectorState`, in the `mirobot_msgs` package. This message is used to control the state of the end effector.
+
+## Future Plans
+
+This repository is planned to expand its functionality to provide more advanced control and usage examples for the Wlkata Mirobot. Below are the key areas of development:
+
+1. **Support for Target Coordinate Inputs**:
+   - Extend the current interface to allow users to input target coordinates directly.
+   - Implement inverse kinematics (IK) calculations to convert target coordinates into joint states.
+   - Provide a seamless integration for both joint state and coordinate-based control.
+
+2. **MoveIt Integration**:
+   - Add support for MoveIt to enable advanced motion planning and collision avoidance.
+   - Create a MoveIt configuration package for the Mirobot.
+   - Provide example scripts demonstrating how to use MoveIt for planning and executing trajectories.
+
+3. **Example Scripts**:
+   - Include example scripts showcasing various use cases:
+     - Basic joint state control.
+     - Target coordinate-based control.
+     - MoveIt-based motion planning and execution.
+   - Ensure the examples are well-documented and easy to follow for new users.
+
+4. **Enhanced GUI Features**:
+   - Update the GUI to support target coordinate inputs.
+   - Add visual feedback for planned trajectories and robot state.
+
+5. **Documentation and Tutorials**:
+   - Expand the documentation to include detailed tutorials for new features.
+   - Provide step-by-step guides for setting up and using the new functionalities.
+
+These enhancements aim to make the repository a comprehensive solution for controlling and experimenting with the Wlkata Mirobot in a ROS 2 environment.
 
 ## License
 
