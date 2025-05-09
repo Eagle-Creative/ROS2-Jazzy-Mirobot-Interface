@@ -14,6 +14,10 @@ This project provides a ROS 2 interface for controlling the Wlkata Mirobot robot
   - Control the end effector with intuitive buttons.
   - Perform homing operations with a single click.
 
+## Compatibility
+
+This repository is specifically designed to work with **ROS 2 Jazzy** and is not compatible with other versions of ROS 2. Please ensure that you are using the correct ROS 2 distribution to avoid compatibility issues.
+
 ## Installation
 
 1. Clone the repository:
@@ -113,3 +117,5 @@ Contributions are welcome! Please follow the standard GitHub workflow:
 ## Acknowledgments
 
 This project is inspired by the Wlkata Mirobot and aims to provide a robust ROS 2 interface for its control.
+
+Additionally, this repository is based on the work from [kimsooyoung/mirobot_ros2](https://github.com/kimsooyoung/mirobot_ros2). Significant updates have been made to replace the `serial` package with the `serial_driver` package because the original package is not supported in ROS2-Jazzy.
