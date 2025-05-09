@@ -50,9 +50,9 @@ This repository is specifically designed to work with **ROS 2 Jazzy** and is not
 
 ## Usage
 
-### Launching the Robot Description
+### Launching the Mirobot Interface
 
-To launch the robot description and visualization in RViz, run:
+To launch the Mirobot Interface and visualization in RViz, run:
 ```bash
 ros2 launch mirobot_interfaces mirobot_interfaces.launch.py
 ```
