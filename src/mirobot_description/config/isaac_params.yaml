@@ -1,0 +1,5 @@
+mirobot_write_node:
+  ros__parameters:
+    port_name: "/dev/ttyUSB0"
+    baud_rate: "115200"
+    joint_states_topic_name: "/isaac/joint_states"
