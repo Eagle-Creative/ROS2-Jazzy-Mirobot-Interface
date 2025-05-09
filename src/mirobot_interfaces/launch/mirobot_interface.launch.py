@@ -10,6 +10,7 @@ from launch.substitutions import (
     FindExecutable,
     PathJoinSubstitution,
 )
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -20,32 +21,36 @@ def generate_launch_description():
     urdf_file = os.path.join(description_pkg_path, "urdf", "mirobot_urdf_2.urdf")
     serial_config = os.path.join(description_pkg_path, "config", "rviz_params.yaml")
 
-    # Nodes
-    joint_state_publisher_gui = Node(
-        package="joint_state_publisher_gui",
-        executable="joint_state_publisher_gui",
-        name="joint_state_publisher_gui",
-    )
-
+    # Robot State Publisher Node
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': True}],
-        arguments=[urdf_file],
+        parameters=[{
+            'robot_description': ParameterValue(
+                Command([
+                    PathJoinSubstitution([
+                        FindExecutable(name='xacro')
+                    ]),
+                    ' ',
+                    urdf_file
+                ]),
+                value_type=str
+            ),
+            'use_sim_time': True
+        }],
     )
 
-    # Launch RViz
-    rviz2 = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
+    # Joint State Publisher GUI Node
+    joint_state_publisher_gui = Node(
+        package="joint_state_publisher_gui",
+        executable="joint_state_publisher_gui",
+        name="joint_state_publisher_gui",
         output="screen",
-        arguments=["-d", rviz_config_file],
     )
 
-    # Serial node (old GCode writer from mirobot_interfaces)
+    # Serial Node
     serial_node = Node(
         package="mirobot_interfaces",
         executable="mirobot_gcode_writer",
@@ -54,7 +59,7 @@ def generate_launch_description():
         arguments=["-d", serial_config],
     )
 
-    # Mirobot interface node (from mirobot_interfaces)
+    # Mirobot Interface Node
     mirobot_interface_node = Node(
         package="mirobot_interfaces",
         executable="mirobot_interface.py",
@@ -62,13 +67,24 @@ def generate_launch_description():
         output="screen",
     )
 
+    # RViz Node (delayed startup)
+    rviz2 = TimerAction(
+        period=2.0,  # Delay RViz startup by 2 seconds
+        actions=[
+            Node(
+                package="rviz2",
+                executable="rviz2",
+                name="rviz2",
+                output="screen",
+                arguments=["-d", rviz_config_file],
+            )
+        ],
+    )
+
     return LaunchDescription([
-        TimerAction(
-            period=3.0,
-            actions=[rviz2]
-        ),
         robot_state_publisher,
-        joint_state_publisher_gui,
+        #joint_state_publisher_gui,  # Add the joint_state_publisher_gui back
         serial_node,
         mirobot_interface_node,
+        rviz2,  # Start RViz after a delay
     ])
