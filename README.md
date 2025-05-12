@@ -22,8 +22,7 @@ This repository is specifically designed to work with **ROS 2 Jazzy** and is not
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo/mirobot.git
-   cd mirobot
+   git clone https://github.com/Eagle-Creative/ROS2-Jazzy-Mirobot-Interface.git
    ```
 
 2. Install the `serial_driver` package:
