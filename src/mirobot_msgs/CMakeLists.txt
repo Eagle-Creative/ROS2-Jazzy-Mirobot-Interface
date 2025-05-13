@@ -13,6 +13,7 @@ find_package(rosidl_default_generators REQUIRED)
 # Generate the message
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EndeffectorState.msg"
+  "msg/StdFunction.msg"
   DEPENDENCIES std_msgs
 )
 

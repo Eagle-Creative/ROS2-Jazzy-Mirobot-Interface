@@ -37,6 +37,7 @@ ament_python_install_package(scripts)
 install(
   PROGRAMS
   scripts/mirobot_interface.py
+  scripts/mirobot_std_functions.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

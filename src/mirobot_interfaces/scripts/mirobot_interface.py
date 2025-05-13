@@ -8,6 +8,7 @@ import rclpy
 from rclpy.node import Node
 from mirobot_msgs.msg import EndeffectorState
 from sensor_msgs.msg import JointState
+from mirobot_msgs.msg import StdFunction  # Import the StdFunction message
 
 
 class MirobotInterface(Node):
@@ -15,6 +16,17 @@ class MirobotInterface(Node):
         super().__init__('mirobot_interface')
         self.ee_publisher = self.create_publisher(EndeffectorState, 'endeffector_state', 10)
         self.joint_publisher = self.create_publisher(JointState, 'joint_states', 10)
+
+        # Add a publisher for standard function commands
+        self.std_functions_publisher = self.create_publisher(StdFunction, 'standard_function_command', 10)
+
+        # Add a subscriber for cmd_joint_states
+        self.joint_state_subscriber = self.create_subscription(
+            JointState,
+            'cmd_joint_states',  # Subscribe to the correct topic
+            self.update_gui_joint_states,
+            10
+        )
 
         # Joint limits extracted from URDF
         self.joint_limits = {
@@ -25,6 +37,9 @@ class MirobotInterface(Node):
             "joint5": {"lower": -3.48, "upper": 0.52},
             "joint6": {"lower": -6.26, "upper": 6.26},
         }
+
+        # Initialize the timer_active flag
+        self.timer_active = True
 
         # Create the custom GUI
         self.app = QApplication(sys.argv)
@@ -65,13 +80,13 @@ class MirobotInterface(Node):
 
         # Add additional buttons
         self.center_button = QPushButton("Centering")
-        self.center_button.clicked.connect(self.center_joints)
+        self.center_button.clicked.connect(lambda: self.execute_std_function("centering"))
 
         self.randomize_button = QPushButton("Randomize")
-        self.randomize_button.clicked.connect(self.randomize_joints)
+        self.randomize_button.clicked.connect(lambda: self.execute_std_function("randomizing"))
 
         self.homing_button = QPushButton("Homing")
-        self.homing_button.clicked.connect(self.homing)
+        self.homing_button.clicked.connect(lambda: self.execute_std_function("homing"))
 
         # Layout
         layout = QVBoxLayout()
@@ -110,7 +125,22 @@ class MirobotInterface(Node):
         self.ee_publisher.publish(msg)
         self.get_logger().info(f'Sent: name={name}, state={state} to endeffector_state')
 
+    def execute_std_function(self, command):
+        """Stop publishing joint states, send a standard function command, and wait for the response."""
+        # Stop the joint state publisher
+        self.timer_active = False
+        self.timer.cancel()
+
+        # Send the standard function command
+        msg = StdFunction()
+        msg.command = command
+        self.std_functions_publisher.publish(msg)
+        self.get_logger().info(f"Sent command: {command}")
+
     def publish_joint_states(self):
+        if not self.timer_active:
+            return  # Skip publishing if the timer is inactive
+
         msg = JointState()
         msg.name = list(self.joint_limits.keys())
         msg.position = [slider.value() * (3.14159 / 180.0) for slider in self.joint_sliders]  # Convert degrees to radians
@@ -118,31 +148,23 @@ class MirobotInterface(Node):
         self.joint_publisher.publish(msg)
         self.get_logger().info(f"Published joint states: {msg.position}")
 
-    def center_joints(self):
-        """Set all sliders to their center positions and send a single joint state message."""
-        for slider, label, joint_name in zip(self.joint_sliders, self.joint_labels, self.joint_limits.keys()):
-            slider.blockSignals(True)  # Temporarily block signals to avoid triggering publish_joint_states
-            slider.setValue(0)  # Center position
-            label.setText(f"{joint_name}: 0°")  # Update the label text
-            slider.blockSignals(False)  # Re-enable signals
+    def update_gui_joint_states(self, msg):
+        """Update the GUI sliders and labels based on the received joint states and resume publishing."""
+        for i, position in enumerate(msg.position):
+            if i < len(self.joint_sliders):
+                # Update the slider value
+                slider = self.joint_sliders[i]
+                slider.blockSignals(True)  # Prevent triggering slider events
+                slider.setValue(int(position * 180.0 / 3.14159))  # Convert radians to degrees
+                slider.blockSignals(False)
 
-        # Publish a single joint state message after updating all sliders
-        self.publish_joint_states()
+                # Update the corresponding joint label
+                joint_label = self.joint_labels[i]
+                joint_label.setText(f"{msg.name[i]}: {int(position * 180.0 / 3.14159)}°")
 
-    def randomize_joints(self):
-        """Set all sliders to random positions within their limits and send a single joint state message."""
-        for slider in self.joint_sliders:
-            slider.blockSignals(True)  # Temporarily block signals to avoid triggering publish_joint_states
-            slider.setValue(random.randint(slider.minimum(), slider.maximum()))
-            slider.blockSignals(False)  # Re-enable signals
-
-        # Publish a single joint state message after updating all sliders
-        self.publish_joint_states()
-
-    def homing(self):
-        """Set all sliders to their minimum positions."""
-        for slider in self.joint_sliders:
-            slider.setValue(slider.minimum())
+        # Resume the joint state publisher
+        self.timer_active = True
+        self.timer.reset()
 
     def run(self):
         self.window.show()

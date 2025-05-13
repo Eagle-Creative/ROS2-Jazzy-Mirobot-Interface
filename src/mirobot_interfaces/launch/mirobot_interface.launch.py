@@ -67,6 +67,14 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Mirobot Standard Functions Node
+    mirobot_std_functions_node = Node(
+        package="mirobot_interfaces",
+        executable="mirobot_std_functions.py",
+        name="mirobot_std_functions",
+        output="screen",
+    )
+
     # RViz Node (delayed startup)
     rviz2 = TimerAction(
         period=2.0,  # Delay RViz startup by 2 seconds
@@ -86,5 +94,6 @@ def generate_launch_description():
         #joint_state_publisher_gui,  # Add the joint_state_publisher_gui back
         serial_node,
         mirobot_interface_node,
+        mirobot_std_functions_node,  # Add the standard functions node
         rviz2,  # Start RViz after a delay
     ])

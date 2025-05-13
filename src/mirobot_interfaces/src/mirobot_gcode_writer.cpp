@@ -30,7 +30,13 @@ public:
         ee_state_sub_ = this->create_subscription<mirobot_msgs::msg::EndeffectorState>(
             "/endeffector_state", 10, std::bind(&MirobotWriteNode::endeffector_state_callback, this, std::placeholders::_1));
 
-        RCLCPP_INFO(this->get_logger(), "Subscribed to /endeffector_state");
+        cmd_function_sub_ = this->create_subscription<std_msgs::msg::String>(
+            "cmd_function", 10, std::bind(&MirobotWriteNode::handle_cmd_function, this, std::placeholders::_1));
+
+        // Initialize the mirobot_response publisher
+        mirobot_response_publisher_ = this->create_publisher<std_msgs::msg::String>("mirobot_response", 10);
+
+        RCLCPP_INFO(this->get_logger(), "Subscribed to /endeffector_state and cmd_function");
 
         // Check if the serial port is open
         try {
@@ -87,6 +93,52 @@ public:
         RCLCPP_INFO(this->get_logger(), "Homing completed. The robot is ready for usage.");
     }
 
+    void handle_cmd_function(const std_msgs::msg::String::SharedPtr msg) {
+        std::string gcode = msg->data;
+        ensure_serial_port_open(); // Ensure the serial port is open before proceeding
+
+        if (!_serial.is_open()) {
+            RCLCPP_ERROR(this->get_logger(), "Serial port is not open. Cannot send GCODE override command.");
+            return;
+        }
+
+        // Check if the command is a homing command
+        if (gcode == "$H\r\n") {
+            RCLCPP_INFO(this->get_logger(), "Homing command detected. Delegating to the homing() function.");
+            homing(); // Delegate to the homing() function
+            return;
+        }
+
+        // Handle other GCODE commands
+        try {
+            std::vector<uint8_t> Gcode(gcode.begin(), gcode.end());
+            _serial.send(Gcode);
+            RCLCPP_INFO(this->get_logger(), "GCODE override command received and sent: %s", gcode.c_str());
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Error sending GCODE override command: %s", e.what());
+        }
+
+        // Receive the response from the Mirobot
+        try {
+            std::vector<uint8_t> buffer(1024);
+            size_t bytes_read = _serial.receive(buffer);
+
+            if (bytes_read > 0) {
+                std::string response(buffer.begin(), buffer.begin() + bytes_read);
+                RCLCPP_INFO(this->get_logger(), "Received response from Mirobot: %s", response.c_str());
+
+                // Publish the response to the mirobot_response topic
+                auto response_msg = std_msgs::msg::String();
+                response_msg.data = response;
+                mirobot_response_publisher_->publish(response_msg);
+            } else {
+                RCLCPP_WARN(this->get_logger(), "No data received within the timeout period.");
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Error receiving response from Mirobot: %s", e.what());
+        }
+    }
+
 private:
     void ensure_serial_port_open() {
         if (!_serial.is_open()) {
@@ -116,11 +168,11 @@ private:
         sprintf(angle4, "%.2f", msg->position[4] * 57.296);
         sprintf(angle5, "%.2f", msg->position[5] * 57.296);
 
-        std::string GcodeString = (std::string)"M21 G0 X" + angle0 + " Y" + angle1 + " Z" + angle2 + " A" + angle3 + "B" + angle4 + "C" + angle5 + " F3000" + "\r\n";
+        std::string GcodeString = (std::string)"M21 G0 X" + angle0 + " Y" + angle1 + " Z" + angle2 + " A" + angle3 + " B" + angle4 + " C" + angle5 + " F3000" + "\r\n";
         
         // Check if the new G-code is the same as the last sent one
         if (GcodeString == last_sent_gcode_) {
-            return;
+            //return;
         }
 
         RCLCPP_INFO(this->get_logger(), "Generated G-code: %s", GcodeString.c_str());
@@ -188,6 +240,8 @@ private:
     std::string last_sent_gcode_; // Store the last sent G-code
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_sub_;
     rclcpp::Subscription<mirobot_msgs::msg::EndeffectorState>::SharedPtr ee_state_sub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_function_sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mirobot_response_publisher_;
     std::string joint_states_topic_name;
 };
 
