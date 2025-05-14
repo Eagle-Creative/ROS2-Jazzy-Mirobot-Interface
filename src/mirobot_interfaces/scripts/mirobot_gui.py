@@ -155,6 +155,15 @@ class MirobotInterface(Node):
                 joint_label = self.joint_labels[i]
                 joint_label.setText(f"{msg.name[i]}: {int(position * 180.0 / 3.14159)}°")
 
+        # Publish the received joint states
+        joint_state_msg = JointState()
+        joint_state_msg.name = msg.name
+        joint_state_msg.position = msg.position
+        joint_state_msg.header.stamp = self.get_clock().now().to_msg()
+
+        self.cmd_joint_states_publisher.publish(joint_state_msg)
+        self.get_logger().info(f"Published joint states to cmd_joint_states: {joint_state_msg.position}")
+
     def run(self):
         self.window.show()
         sys.exit(self.app.exec_())

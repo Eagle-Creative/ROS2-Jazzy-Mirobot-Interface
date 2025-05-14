@@ -75,7 +75,7 @@ class MirobotStdFunctions(Node):
         joint_state = JointState()
         joint_state.name = list(self.joint_limits.keys())
         joint_state.position = [
-            (limits["lower"] + limits["upper"]) / 2 for limits in self.joint_limits.values()
+            0 for limits in self.joint_limits.values()
         ]
         self.res_std_functions_publisher.publish(joint_state)
         self.get_logger().info("Centering completed and published to res_std_functions.")
