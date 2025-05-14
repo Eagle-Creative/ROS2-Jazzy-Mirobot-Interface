@@ -31,19 +31,26 @@ This repository is specifically designed to work with **ROS 2 Jazzy** and is not
    sudo apt install ros-jazzy-serial-driver
    ```
 
-3. Build the workspace:
+3. Install additional dependencies:
+   ```bash
+   sudo apt install python3-colcon-common-extensions
+   sudo apt install ros-jazzy-rviz2
+   sudo apt install ros-jazzy-ros2launch
+   ```
+
+4. Build the workspace:
    ```bash
    colcon build
    ```
 
-4. Source the setup file:
+5. Source the setup file:
    ```bash
    source install/setup.bash
    ```
 
-5. Make the necessary scripts executable:
+6. Make the necessary scripts executable:
    ```bash
-   chmod +x src/mirobot_interface/launch/mirobot_interface.launch.py
+   chmod +x src/mirobot_interfaces/launch/mirobot_interfaces.launch.py
    ```
 
 ## Usage
@@ -68,6 +75,29 @@ This project depends on the following ROS 2 packages:
 ## Custom Messages
 
 The project defines a custom message, `EndeffectorState`, in the `mirobot_msgs` package. This message is used to control the state of the end effector.
+
+## Module Descriptions
+
+### `mirobot_gui`
+This module provides the graphical user interface (GUI) for controlling the Mirobot. It includes features such as:
+- Sending G-code commands directly to the robot.
+- Monitoring joint states in real-time.
+- Controlling the end effector with intuitive buttons.
+- Performing homing operations with a single click.
+
+### `mirobot_controller`
+This module handles the communication between the GUI and the robot. It:
+- Subscribes to commands from the GUI.
+- Publishes joint states and end effector states to relevant topics.
+- Ensures smooth operation of the robot by managing state updates.
+
+### `mirobot_std_functions`
+This module provides standard functions for the Mirobot, such as:
+- Homing the robot to its initial position.
+- Sending predefined G-code commands for common operations.
+
+### `mirobot_gcode_writer`
+This module is responsible for translating high-level commands into G-code instructions that the Mirobot can execute. It ensures accurate and efficient communication with the robot's firmware.
 
 ## Future Plans
 
@@ -116,4 +146,4 @@ Contributions are welcome! Please follow the standard GitHub workflow:
 
 This project is inspired by the Wlkata Mirobot and aims to provide a robust ROS 2 interface for its control.
 
-Additionally, this repository is based on the work from [kimsooyoung/mirobot_ros2](https://github.com/kimsooyoung/mirobot_ros2). Significant updates have been made to replace the `serial` package with the `serial_driver` package because the original package is not supported in ROS2-Jazzy.
+Additionally, this repository is loosly based on the work from [kimsooyoung/mirobot_ros2](https://github.com/kimsooyoung/mirobot_ros2). Significant updates have been made to replace the `serial` package with the `serial_driver` package because the original package is not supported in ROS2-Jazzy.

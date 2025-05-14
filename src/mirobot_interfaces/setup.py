@@ -6,7 +6,7 @@ setup(
     name=package_name,
     version='0.0.0',
     packages=[],
-    py_modules=['scripts.mirobot_interface'],
+    py_modules=['scripts.mirobot_gui'],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='jonas',
@@ -16,7 +16,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'mirobot_interface = scripts.mirobot_interface:main',
+            'mirobot_gui = scripts.mirobot_gui:main',
         ],
     },
 )

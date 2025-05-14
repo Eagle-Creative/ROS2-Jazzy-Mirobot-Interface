@@ -59,11 +59,11 @@ def generate_launch_description():
         arguments=["-d", serial_config],
     )
 
-    # Mirobot Interface Node
-    mirobot_interface_node = Node(
+    # Mirobot GUI Node
+    mirobot_gui_node = Node(
         package="mirobot_interfaces",
-        executable="mirobot_interface.py",
-        name="mirobot_interface",
+        executable="mirobot_gui.py",
+        name="mirobot_gui",
         output="screen",
     )
 
@@ -72,6 +72,14 @@ def generate_launch_description():
         package="mirobot_interfaces",
         executable="mirobot_std_functions.py",
         name="mirobot_std_functions",
+        output="screen",
+    )
+
+    # Mirobot Controller Node
+    mirobot_controller_node = Node(
+        package="mirobot_interfaces",
+        executable="mirobot_controller.py",
+        name="mirobot_controller",
         output="screen",
     )
 
@@ -91,9 +99,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_state_publisher,
-        #joint_state_publisher_gui,  # Add the joint_state_publisher_gui back
+        # joint_state_publisher_gui,  # Uncomment if needed for GUI-based joint state publishing
         serial_node,
-        mirobot_interface_node,
-        mirobot_std_functions_node,  # Add the standard functions node
+        mirobot_gui_node,
+        mirobot_std_functions_node,
+        mirobot_controller_node,  # Add the controller node
         rviz2,  # Start RViz after a delay
     ])

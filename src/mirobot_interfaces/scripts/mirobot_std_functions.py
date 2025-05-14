@@ -3,8 +3,7 @@
 
 import rclpy
 from rclpy.node import Node
-from mirobot_msgs.msg import StdFunction  # Import the StdFunction message
-from std_msgs.msg import String  # Import String for GCODE commands
+from std_msgs.msg import String
 from sensor_msgs.msg import JointState
 import random
 import time
@@ -14,16 +13,16 @@ class MirobotStdFunctions(Node):
     def __init__(self):
         super().__init__('mirobot_std_functions')
 
-        # Publisher for cmd_joint_states
-        self.joint_publisher = self.create_publisher(JointState, 'cmd_joint_states', 10)
+        # Publisher for res_std_functions
+        self.res_std_functions_publisher = self.create_publisher(JointState, 'res_std_functions', 10)
 
-        # Publisher for cmd_function (GCODE override commands)
+        # Publisher for cmd_function (to send G-code commands)
         self.cmd_function_publisher = self.create_publisher(String, 'cmd_function', 10)
 
         # Subscriber for standard function commands
         self.command_subscriber = self.create_subscription(
-            StdFunction,
-            'standard_function_command',
+            String,
+            'cmd_std_functions',
             self.handle_command,
             10
         )
@@ -42,7 +41,7 @@ class MirobotStdFunctions(Node):
 
     def handle_command(self, msg):
         """Handle incoming commands for standard functions."""
-        command = msg.command.lower()
+        command = msg.data.lower()
         if command == "homing":
             self.homing()
         elif command == "centering":
@@ -53,42 +52,45 @@ class MirobotStdFunctions(Node):
             self.get_logger().warn(f"Unknown command: {command}")
 
     def homing(self):
-        """Publish the homing GCODE command to cmd_function and set all joints to 0 after a delay."""
-        # Publish the GCODE command for homing
+        """Simulate homing by sending a $H command to the G-code writer."""
+        self.get_logger().info("Executing homing...")
+
+        # Send the $H command to the G-code writer
         gcode_msg = String()
-        gcode_msg.data = "$H\r\n"  # GCODE command for homing
+        gcode_msg.data = "$H\r\n"
         self.cmd_function_publisher.publish(gcode_msg)
-        self.get_logger().info("Homing GCODE command published to cmd_function.")
+        self.get_logger().info("Homing command ($H) sent to G-code writer.")
 
-        # Wait for the homing sequence to complete
-        time.sleep(5)  # Adjust the delay as needed
-
-        # Set all joint states to 0
+        # Publish the joint state after homing
         joint_state = JointState()
         joint_state.name = list(self.joint_limits.keys())
         joint_state.position = [0.0 for _ in self.joint_limits.values()]
-        self.joint_publisher.publish(joint_state)
-        self.get_logger().info("Homing completed. All joint states set to 0.")
+        self.res_std_functions_publisher.publish(joint_state)
+        self.get_logger().info("Homing completed and published to res_std_functions.")
 
     def centering(self):
         """Set all joints to their center positions."""
+        self.get_logger().info("Executing centering...")
+
         joint_state = JointState()
         joint_state.name = list(self.joint_limits.keys())
         joint_state.position = [
-            0 for limits in self.joint_limits.values()
+            (limits["lower"] + limits["upper"]) / 2 for limits in self.joint_limits.values()
         ]
-        self.joint_publisher.publish(joint_state)
-        self.get_logger().info("Centering completed and published to cmd_joint_states.")
+        self.res_std_functions_publisher.publish(joint_state)
+        self.get_logger().info("Centering completed and published to res_std_functions.")
 
     def randomizing(self):
         """Set all joints to random positions within their limits."""
+        self.get_logger().info("Executing randomizing...")
+
         joint_state = JointState()
         joint_state.name = list(self.joint_limits.keys())
         joint_state.position = [
             random.uniform(limits["lower"], limits["upper"]) for limits in self.joint_limits.values()
         ]
-        self.joint_publisher.publish(joint_state)
-        self.get_logger().info("Randomizing completed and published to cmd_joint_states.")
+        self.res_std_functions_publisher.publish(joint_state)
+        self.get_logger().info("Randomizing completed and published to res_std_functions.")
 
 
 def main(args=None):
