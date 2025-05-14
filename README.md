@@ -99,6 +99,12 @@ This module provides standard functions for the Mirobot, such as:
 ### `mirobot_gcode_writer`
 This module is responsible for translating high-level commands into G-code instructions that the Mirobot can execute. It ensures accurate and efficient communication with the robot's firmware.
 
+## Module Interaction Diagram
+
+Below is a graphical representation of how the modules in this project interact with each other:
+
+![Module Interaction Diagram](media/Mirobot_rqt_graph.png)
+
 ## Future Plans
 
 This repository is planned to expand its functionality to provide more advanced control and usage examples for the Wlkata Mirobot. Below are the key areas of development:
