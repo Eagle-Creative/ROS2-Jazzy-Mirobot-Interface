@@ -6,6 +6,10 @@
 .DS_Store
 .idea
 
+# Python virtual environments
+.venv
+venv
+env
 
 # colcon/CMake output
 build

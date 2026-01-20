@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(serial_driver REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -16,7 +17,7 @@ find_package(mirobot_msgs REQUIRED)
 
 
 add_executable(mirobot_gcode_writer src/mirobot_gcode_writer.cpp)
-ament_target_dependencies(mirobot_gcode_writer rclcpp sensor_msgs std_msgs serial_driver mirobot_msgs)
+ament_target_dependencies(mirobot_gcode_writer rclcpp sensor_msgs geometry_msgs std_msgs serial_driver mirobot_msgs)
 
 install(
   TARGETS
@@ -45,6 +46,12 @@ install(
 # Install launch files
 install(
   DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}/
+)
+
+# Install config files
+install(
+  DIRECTORY config
   DESTINATION share/${PROJECT_NAME}/
 )
 

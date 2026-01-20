@@ -1,0 +1,2 @@
+# Mirobot Interfaces Dependencies
+PyQt5>=5.15.0

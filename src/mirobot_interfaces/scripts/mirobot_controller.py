@@ -11,17 +11,36 @@ class MirobotControllerNode(Node):
     def __init__(self):
         super().__init__('mirobot_controller_node')
 
-        # Declare and get parameters
-        self.declare_parameter('cmd_joint_states_topic', 'cmd_joint_states')
-        self.cmd_joint_states_topic = self.get_parameter('cmd_joint_states_topic').get_parameter_value().string_value
+        # Declare and get parameters from config file
+        self.declare_parameter('topics.prefix', '')
+        self.declare_parameter('topics.cmd_joint_states', 'cmd_joint_states')
+        self.declare_parameter('topics.joint_states', 'joint_states')
+        self.declare_parameter('topics.cmd_endeffector_state', 'cmd_endeffector_state')
+        self.declare_parameter('topics.endeffector_state', 'endeffector_state')
+        self.declare_parameter('controller.publish_rate_hz', 2.0)
+        
+        # Get topic prefix and apply it
+        prefix = self.get_parameter('topics.prefix').get_parameter_value().string_value
+        if prefix and not prefix.endswith('/'):
+            prefix += '/'
+        
+        cmd_joint_states_topic = prefix + self.get_parameter('topics.cmd_joint_states').get_parameter_value().string_value
+        joint_states_topic = prefix + self.get_parameter('topics.joint_states').get_parameter_value().string_value
+        cmd_endeffector_topic = prefix + self.get_parameter('topics.cmd_endeffector_state').get_parameter_value().string_value
+        endeffector_topic = prefix + self.get_parameter('topics.endeffector_state').get_parameter_value().string_value
+        publish_rate_hz = self.get_parameter('controller.publish_rate_hz').get_parameter_value().double_value
+
+        self.get_logger().info(f'Configuration loaded:')
+        self.get_logger().info(f'  Publish Rate: {publish_rate_hz} Hz')
+        self.get_logger().info(f'  Topics: {cmd_joint_states_topic} -> {joint_states_topic}')
 
         # Subscribers
-        self.create_subscription(JointState, self.cmd_joint_states_topic, self.cmd_joint_states_callback, 10)
-        self.create_subscription(EndeffectorState, 'cmd_endeffector_state', self.cmd_endeffector_state_callback, 10)
+        self.create_subscription(JointState, cmd_joint_states_topic, self.cmd_joint_states_callback, 10)
+        self.create_subscription(EndeffectorState, cmd_endeffector_topic, self.cmd_endeffector_state_callback, 10)
 
         # Publishers
-        self.joint_states_publisher = self.create_publisher(JointState, 'joint_states', 10)
-        self.endeffector_state_publisher = self.create_publisher(EndeffectorState, 'endeffector_state', 10)
+        self.joint_states_publisher = self.create_publisher(JointState, joint_states_topic, 10)
+        self.endeffector_state_publisher = self.create_publisher(EndeffectorState, endeffector_topic, 10)
 
         # Initialize the latest joint state with default values
         self.latest_joint_state = JointState()
@@ -31,7 +50,8 @@ class MirobotControllerNode(Node):
         self.latest_joint_state.effort = []
 
         # Timer to continuously publish the latest joint state
-        self.timer = self.create_timer(0.1, self.publish_latest_joint_state)  # Publish at 10 Hz
+        timer_period = 1.0 / publish_rate_hz  # Calculate period from rate
+        self.timer = self.create_timer(timer_period, self.publish_latest_joint_state)
 
         self.get_logger().info('Mirobot Controller Node is ready.')
 

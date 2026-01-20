@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import TimerAction
+from launch.actions import TimerAction, SetEnvironmentVariable
 
 from launch.substitutions import (
     Command,
@@ -59,7 +59,7 @@ def generate_launch_description():
         arguments=["-d", serial_config],
     )
 
-    # Mirobot GUI Node
+    # Mirobot GUI Node  
     mirobot_gui_node = Node(
         package="mirobot_interfaces",
         executable="mirobot_gui.py",
@@ -98,6 +98,10 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        # Clear GTK-related environment variables to prevent snap library conflicts
+        SetEnvironmentVariable('GTK_MODULES', ''),
+        SetEnvironmentVariable('GTK3_MODULES', ''),
+        SetEnvironmentVariable('GTK_PATH', ''),
         robot_state_publisher,
         # joint_state_publisher_gui,  # Uncomment if needed for GUI-based joint state publishing
         serial_node,

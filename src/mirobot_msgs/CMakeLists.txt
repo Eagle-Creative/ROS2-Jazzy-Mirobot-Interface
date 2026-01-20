@@ -14,6 +14,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EndeffectorState.msg"
   "msg/StdFunction.msg"
+  "msg/CartesianPose.msg"
   DEPENDENCIES std_msgs
 )
 

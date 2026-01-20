@@ -1,0 +1,40 @@
+# Mirobot Configuration File
+# This file contains all configurable parameters for the Mirobot system
+
+/**:
+  ros__parameters:
+    # Serial Communication Settings
+    serial:
+      port: "/dev/ttyUSB0"
+      baud_rate: 115200
+
+    # Controller Settings
+    controller:
+      publish_rate_hz: 2.0  # Rate at which joint states are published (Hz)
+
+    # Topic Names
+    topics:
+      prefix: "mirobot_01"  # Optional prefix for all topics (e.g., "mirobot" or "robot1"). Leave empty for no prefix.
+      joint_states: "joint_states"
+      cmd_joint_states: "cmd_joint_states"
+      cmd_endeffector_state: "cmd_endeffector_state"
+      endeffector_state: "endeffector_state"
+      cmd_cartesian_pose: "target_pose"  # Standard geometry_msgs/PoseStamped topic
+      cartesian_linear_mode: "cartesian_linear_mode"  # std_msgs/Bool - true for linear, false for PTP
+      cartesian_speed: "cartesian_speed"  # std_msgs/Float64 - speed in mm/s
+      cmd_function: "cmd_function"
+      cmd_std_functions: "cmd_std_functions"
+      res_std_functions: "res_std_functions"
+      mirobot_response: "mirobot_response"
+
+    # Robot Settings
+    robot:
+      perform_homing_on_startup: true
+      homing_timeout_seconds: 20
+      default_cartesian_speed: 2000.0  # Default Cartesian speed in mm/s
+
+    # Visualization Settings
+    visualization:
+      use_sim_time: true
+      enable_rviz: true
+      rviz_delay_seconds: 2.0
