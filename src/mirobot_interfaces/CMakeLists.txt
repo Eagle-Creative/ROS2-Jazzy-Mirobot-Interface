@@ -11,13 +11,14 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(serial_driver REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(mirobot_msgs REQUIRED)
 
 
 add_executable(mirobot_gcode_writer src/mirobot_gcode_writer.cpp)
-ament_target_dependencies(mirobot_gcode_writer rclcpp sensor_msgs geometry_msgs std_msgs serial_driver mirobot_msgs)
+ament_target_dependencies(mirobot_gcode_writer rclcpp sensor_msgs geometry_msgs std_msgs diagnostic_msgs serial_driver mirobot_msgs)
 
 install(
   TARGETS

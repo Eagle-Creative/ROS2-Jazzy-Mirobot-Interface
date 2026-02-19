@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EndeffectorState.msg"
   "msg/StdFunction.msg"
   "msg/CartesianPose.msg"
+  "msg/MirobotStatus.msg"
   DEPENDENCIES std_msgs
 )
 

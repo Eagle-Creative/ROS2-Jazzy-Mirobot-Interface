@@ -3,6 +3,10 @@
 
 /**:
   ros__parameters:
+    # Robot Identification
+    robot:
+      name: "mirobot_01"  # Robot name/identifier (used as topic prefix)
+
     # Serial Communication Settings
     serial:
       port: "/dev/ttyUSB0"
@@ -14,27 +18,27 @@
 
     # Topic Names
     topics:
-      prefix: "mirobot_01"  # Optional prefix for all topics (e.g., "mirobot" or "robot1"). Leave empty for no prefix.
+      prefix: "mirobot_01"  # Topic prefix for multi-robot support. Should match robot.name
       joint_states: "joint_states"
       cmd_joint_states: "cmd_joint_states"
       cmd_endeffector_state: "cmd_endeffector_state"
       endeffector_state: "endeffector_state"
       cmd_cartesian_pose: "target_pose"  # Standard geometry_msgs/PoseStamped topic
-      cartesian_linear_mode: "cartesian_linear_mode"  # std_msgs/Bool - true for linear, false for PTP
+      cartesian_mode: "cartesian_mode"  # std_msgs/String - "ptp" or "linear"
+      cartesian_linear_mode: "cartesian_linear_mode"  # DEPRECATED: Use cartesian_mode instead
       cartesian_speed: "cartesian_speed"  # std_msgs/Float64 - speed in mm/s
       cmd_function: "cmd_function"
       cmd_std_functions: "cmd_std_functions"
       res_std_functions: "res_std_functions"
       mirobot_response: "mirobot_response"
+      mirobot_status: "status"  # diagnostic_msgs/DiagnosticStatus - robot state and diagnostics
 
     # Robot Settings
     robot:
-      perform_homing_on_startup: true
-      homing_timeout_seconds: 20
-      default_cartesian_speed: 2000.0  # Default Cartesian speed in mm/s
+      perform_homing_on_startup: true  # Set to true to home the robot when the node starts
+      homing_wait_time_seconds: 20  # Time to wait for homing to complete (seconds)
 
-    # Visualization Settings
-    visualization:
-      use_sim_time: true
-      enable_rviz: true
-      rviz_delay_seconds: 2.0
+    # Cartesian Control Settings
+    cartesian:
+      default_speed_mm_per_sec: 2000  # Default speed for Cartesian movements (mm/s)
+      default_mode: "linear"  # Default movement mode: "ptp" or "linear" (linear required for orientation control)
