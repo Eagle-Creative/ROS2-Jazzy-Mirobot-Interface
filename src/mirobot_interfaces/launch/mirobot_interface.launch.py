@@ -21,6 +21,10 @@ def generate_launch_description():
     urdf_file = os.path.join(description_pkg_path, "urdf", "mirobot_urdf_2.urdf")
     serial_config = os.path.join(description_pkg_path, "config", "rviz_params.yaml")
 
+    interfaces_pkg_path = os.path.join(get_package_share_directory("mirobot_interfaces"))
+    mirobot_config = os.path.join(interfaces_pkg_path, "config", "mirobot_config.yaml")
+
+
     # Robot State Publisher Node
     robot_state_publisher = Node(
         package='robot_state_publisher',
@@ -56,7 +60,7 @@ def generate_launch_description():
         executable="mirobot_gcode_writer",
         name="mirobot_write_node",
         output="screen",
-        arguments=["-d", serial_config],
+        parameters=[mirobot_config],
     )
 
     # Mirobot GUI Node  
