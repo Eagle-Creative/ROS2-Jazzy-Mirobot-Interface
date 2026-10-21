@@ -1,6 +1,6 @@
 # ROS2-Jazzy Wlkata Mirobot Interface
 
-A ROS 2 - Jazzy interface for controlling the Wlkata Mirobot 6-DOF robotic arm with support for joint control, Cartesian positioning, and flexible configuration.
+A ROS 2 - Jazzy interface for controlling the Wlkata Mirobot 6-DOF robotic arm with support for joint control, Cartesian positioning, MoveIt 2 motion planning, and flexible configuration.
 
 [![ROS 2 Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-blue)](https://docs.ros.org/en/jazzy/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
@@ -23,6 +23,9 @@ ros2 launch mirobot_interfaces mirobot_interface.launch.py
 
 # Or launch headless (for integration)
 ros2 launch mirobot_interfaces mirobot_headless.launch.py
+
+# Optional: MoveIt 2 planning for the arm (needs ros-jazzy-moveit)
+ros2 launch mirobot_moveit_config move_group.launch.py
 ```
 
 ## Features
@@ -44,6 +47,8 @@ ros2 launch mirobot_interfaces mirobot_headless.launch.py
 - **Flexible Configuration**: All parameters configurable via YAML file
 - **Standard Functions Library**: Pre-programmed movements and utilities
 - **RViz Visualization**: Real-time 3D visualization of robot state
+- **MoveIt 2 Planning** (`mirobot_moveit_config`): Pilz PTP/LIN and OMPL planners, KDL IK,
+  self-collision model and a tool centre point frame calibrated against the firmware
 
 ## Compatibility
 
@@ -249,6 +254,82 @@ All system parameters are configured in `src/mirobot_interfaces/config/mirobot_c
 - **Custom Topic Namespace**: Add prefixes to all topic names for multi-robot systems
 
 For detailed configuration options, see [`src/mirobot_interfaces/CONFIGURATION.md`](src/mirobot_interfaces/CONFIGURATION.md).
+
+## MoveIt 2 Motion Planning
+
+`mirobot_moveit_config` plans for the arm with MoveIt 2. It is **planning only**: the Mirobot
+has no `ros2_control` interface, so `move_group` runs with trajectory execution disabled. Planned
+joint targets are sent through the driver (see [Executing a plan](#executing-a-plan)).
+
+```bash
+sudo apt install ros-jazzy-moveit          # move_group, Pilz, OMPL, KDL
+colcon build --packages-select mirobot_moveit_config
+ros2 launch mirobot_interfaces mirobot_headless.launch.py      # driver: /mirobot_01/joint_states
+ros2 launch mirobot_moveit_config move_group.launch.py         # robot_state_publisher + move_group
+```
+
+| | |
+|---|---|
+| Planning group | `mirobot_arm` (chain `base_link` → `mirobot_tcp`) |
+| Named state | `home` (all joints 0, the pose after `$H`) |
+| Planners | Pilz industrial (`PTP` default, `LIN`, `CIRC`), OMPL |
+| IK | KDL |
+| Joint states | `/<robot_name>/joint_states` (launch argument `robot_name`, default `mirobot_01`) |
+| Tool | launch argument `tool_length` (m), default `0.0575` = standard WLKATA suction cup |
+
+Note: the headless launch starts its own `robot_state_publisher` with the plain description; when
+running MoveIt alongside, the TFs are identical except for the extra `mirobot_tcp` frame.
+
+### Tool centre point (`mirobot_tcp`)
+
+`mirobot_tcp` sits on the tool axis with Z pointing along the tool (down at home):
+
+- The firmware's own Cartesian point is **8 mm beyond `Link6`'s origin** along the tool axis. At
+  home the URDF puts `Link6` at z = 238.7 mm and the firmware reports (198.67, 0, 230.72) mm.
+  All six joint directions match the firmware's Cartesian output.
+- `tool_length` is measured **from that firmware point** to the tool tip. The flange seat (where the
+  orange cover of the wrist ends) is 5.5 mm beyond the firmware point, so
+  `tool_length = 0.0055 + flange-to-tip`.
+- Standard WLKATA suction cup: 52 mm flange-to-tip → `tool_length:=0.0575` (the default). For
+  another tool, measure flange-to-tip and add 5.5 mm.
+
+### Measured on a real unit
+
+These numbers come from one Mirobot bolted directly to a wooden plate, checked by hovering the
+suction cup at known heights and over printed markers with a ruler (±1–2 mm). Check them on your
+own setup before relying on them.
+
+- **Mounting surface below `base_link`:** the plate surface was **21 mm below `base_link` z = 0**
+  (the zero the URDF and the firmware share), constant within ±1 mm at three heights and joint 2
+  angles from 11° to 45°. Model the table at about `z = -0.021` (collision object a millimetre
+  lower) and use the same height for anything placed on it, e.g. calibration markers.
+- **Joint moves are straight lines in joint space:** `M21 G90 G00 X.. Y.. Z.. A.. B.. C..` (joint 1–6
+  in degrees) moves all joints simultaneously; the measured path stayed within 0.0004 rad of the
+  straight joint-space line. A Pilz `PTP` plan (also a straight joint-space line) is therefore
+  reproduced as a single G-code move to its end point — same path, firmware timing.
+- **Reach with the suction cup pointing down** (IK incl. self-collision, straight ahead): tip 10 mm
+  above the plate 0.12–0.27 m from the base axis; 50 mm above the plate 0.14–0.29 m and more.
+- **IK branch:** tool-down solutions normally have joint 5 < 0 (wrist bent down). Near home
+  height KDL can return a solution with joint 5 slightly > 0; seed with joint 5 negative if that
+  matters.
+- **Feedback rate:** firmware telemetry (`O104=1`) arrives at roughly 5 Hz, so joint states are
+  not suited for closed-loop control.
+
+### Executing a plan
+
+There is no `FollowJointTrajectory` controller. To execute a plan, check that the robot is at the
+trajectory's first point and send the joint targets through the driver's raw G-code topic, waiting
+until `/mirobot_01/joint_states` reaches each target:
+
+```bash
+# one joint-space move (degrees, F = feed); a PTP plan needs only its last point
+ros2 topic pub --once /mirobot_01/cmd_function std_msgs/msg/String \
+  "{data: 'M21 G90 G00 X20 Y10 Z5 A0 B-15 C0 F600\r\n'}"
+```
+
+For curved plans (OMPL), send intermediate points so that each straight joint-space segment stays
+close to the planned path. Keep the feed low and the workspace clear: nothing interrupts a G-code
+move once the firmware has accepted it.
 
 ## Integration with Other ROS 2 Projects
 
@@ -590,13 +671,13 @@ controller:
 - ✅ Headless operation mode
 - ✅ YAML-based configuration
 - ✅ Flexible topic naming
+- ✅ MoveIt 2 motion planning (`mirobot_moveit_config`, plan only)
 
 ### Planned 🚧
 
-1. **MoveIt2 Integration**
-   - Motion planning with collision avoidance
-   - Trajectory execution and validation
-   - Planning scene integration
+1. **MoveIt 2 Execution**
+   - `FollowJointTrajectory` action server streaming G-code (or a `ros2_control` hardware interface)
+   - Interrupting a running move (firmware feed-hold behaviour still to be verified)
 
 2. **Advanced Control Features**
    - Trajectory playback from files
@@ -616,7 +697,6 @@ controller:
 5. **Documentation Improvements**
    - Video tutorials
    - Example applications
-   - MoveIt configuration guide
 
 Contributions for any of these features are welcome!
 

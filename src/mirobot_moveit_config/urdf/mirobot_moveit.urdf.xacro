@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0
+     MoveIt model of the WLKATA Mirobot: mirobot_description/urdf/mirobot_urdf_2.urdf plus a tool
+     centre point frame (mirobot_tcp). -->
+<robot name="mirobot" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find mirobot_description)/urdf/mirobot_urdf_2.urdf"/>
+
+  <!-- Tool centre point.
+       The firmware's Cartesian TCP is 8 mm beyond Link6's origin along the tool direction
+       (Link6 -Z): at home the URDF Link6 is at z 238.7 mm, the firmware reports 230.72 mm, and
+       all six joint directions match the firmware (checked against its Cartesian output).
+       mirobot_tcp's Z points along the tool (down at home).
+
+       tool_length = distance from that firmware TCP to the tool tip.  The flange seat (where the
+       orange Link5 cover ends) is 5.5 mm beyond the firmware TCP (Link5/Link6 meshes), so
+         tool_length = 0.0055 + flange-to-tip
+       Standard WLKATA suction cup: 52 mm flange-to-tip (measured) -> 0.0575 (default).
+       Verified on a real unit by hovering the cup at three heights (+-1 mm). -->
+  <xacro:arg name="tool_length" default="0.0575"/>
+  <link name="mirobot_tcp"/>
+  <joint name="mirobot_tcp_joint" type="fixed">
+    <parent link="Link6"/>
+    <child link="mirobot_tcp"/>
+    <origin xyz="0 0 ${-0.008 - $(arg tool_length)}" rpy="3.14159265 0 0"/>
+  </joint>
+
+</robot>
