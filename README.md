@@ -232,7 +232,7 @@ All system parameters are configured in `src/mirobot_interfaces/config/mirobot_c
     # Robot behavior
     robot:
       perform_homing_on_startup: true
-      homing_timeout_seconds: 20
+      homing_timeout_seconds: 60   # upper bound; completion is detected from the firmware (Idle after $H)
     
     # Topic names (all configurable)
     topics:

@@ -38,7 +38,9 @@ public:
         this->declare_parameter("serial.port", "/dev/ttyUSB1");
         this->declare_parameter("serial.baud_rate", 115200);
         this->declare_parameter("robot.perform_homing_on_startup", true);
-        this->declare_parameter("robot.homing_timeout_seconds", 20);
+        // Upper bound for homing; completion itself is detected from the firmware
+        // state (Idle after $H), not assumed after a fixed wait.
+        this->declare_parameter("robot.homing_timeout_seconds", 60);
         this->declare_parameter("robot.default_cartesian_speed", 2000.0);
         this->declare_parameter("cartesian.default_mode", "linear");
         
@@ -124,7 +126,9 @@ public:
         RCLCPP_INFO(this->get_logger(), "Subscribed to topics: %s, %s, %s", 
                     endeffector_topic.c_str(), cartesian_topic.c_str(), cmd_function_topic.c_str());
 
-        // Check if the serial port is open
+        // Open now (it was only constructed above) - the old check always logged
+        // "Failed to open" because nothing had opened the port yet.
+        ensure_serial_port_open();
         try {
             if (!serial_->is_open()) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to open serial port %s", serial_port.c_str());
@@ -135,62 +139,96 @@ public:
             RCLCPP_ERROR(this->get_logger(), "Exception during serial port initialization: %s", e.what());
         }
 
+        // Telemetry first: homing completion and the homed state are read from it.
+        enable_continuous_status_feedback();
+
         // Perform homing during startup if enabled
         if (perform_homing) {
             homing();
         } else {
-            RCLCPP_INFO(this->get_logger(), "Homing on startup is disabled.");
+            RCLCPP_INFO(this->get_logger(), "Homing on startup is disabled (homed state follows the firmware telemetry).");
         }
-
-        enable_continuous_status_feedback();
     }
 
     void homing() {
+        // Non-blocking: send $H and let the telemetry (read_serial_feedback_nonblocking
+        // -> parse_mirobot_response) report completion.  The firmware is in "Alarm"
+        // until homed and reports "Idle" once homing finished; publish_status()
+        // flags a homing that does not finish within robot.homing_timeout_seconds.
         std::vector<uint8_t> HomingGcode = {'$', 'H', '\r', '\n'};
         ensure_serial_port_open();
 
-        // Check if the serial port is open
         if (!serial_->is_open()) {
             RCLCPP_ERROR(this->get_logger(), "Serial port is not open. Cannot send homing command.");
             return;
         }
 
-        // Send the G-code command to the serial port
         try {
             serial_->send(HomingGcode);
-            RCLCPP_INFO(this->get_logger(), "Homing command sent successfully.");
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Error sending homing command: %s", e.what());
             return;
         }
 
-        // Receive the response from the serial port
-        try {
-            std::vector<uint8_t> buffer(1024);
-            size_t bytes_read = serial_->receive(buffer);
+        homing_in_progress_ = true;
+        homing_started_ = std::chrono::steady_clock::now();
+        is_homed_ = false;            // joint feedback is invalid until homing completes
+        is_busy_ = true;
+        has_error_ = false;
+        error_message_.clear();
+        last_movement_time_ = std::chrono::steady_clock::time_point::min();  // homing has its own timeout
+        RCLCPP_INFO(this->get_logger(), "Homing started ($H) - waiting for the firmware to report Idle (timeout %d s)",
+                    homing_timeout_seconds_);
+    }
 
-            if (bytes_read > 0) {
-                std::string result(buffer.begin(), buffer.begin() + bytes_read);
-                RCLCPP_INFO(this->get_logger(), "Received: %s", result.c_str());
-                
-                // Mark robot as busy during homing
-                is_busy_ = true;
-                last_movement_time_ = std::chrono::steady_clock::now();
-                RCLCPP_INFO(this->get_logger(), "Robot is now BUSY (homing in progress)");
-            } else {
-                RCLCPP_WARN(this->get_logger(), "No data received within the timeout period.");
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_ERROR(this->get_logger(), "Error receiving data: %s", e.what());
+    // Firmware state of a telemetry frame: "<Idle,Angle(...)...>" -> "Idle".
+    static std::string firmware_state_of(const std::string& response) {
+        size_t lt = response.find('<');
+        if (lt == std::string::npos) {
+            return "";
         }
+        size_t comma = response.find(',', lt + 1);
+        size_t gt = response.find('>', lt + 1);
+        size_t end = std::min(comma == std::string::npos ? response.size() : comma,
+                              gt == std::string::npos ? response.size() : gt);
+        return response.substr(lt + 1, end - lt - 1);
+    }
 
-        // Wait for configured time to complete the homing process
-        RCLCPP_INFO(this->get_logger(), "Waiting for %d seconds to complete homing...", homing_timeout_seconds_);
-        rclcpp::sleep_for(std::chrono::seconds(homing_timeout_seconds_));
-        is_homed_ = true;  // Mark as homed
-        is_busy_ = false;  // Homing complete, robot is now idle
-        last_movement_time_ = std::chrono::steady_clock::time_point::min();  // Clear movement time
-        RCLCPP_INFO(this->get_logger(), "Homing completed. The robot is ready for usage.");
+    void update_homed_state(const std::string& state) {
+        if (state.empty()) {
+            return;
+        }
+        if (state != firmware_state_) {
+            RCLCPP_INFO(this->get_logger(), "Firmware state: %s -> %s",
+                        firmware_state_.empty() ? "(unknown)" : firmware_state_.c_str(), state.c_str());
+            firmware_state_ = state;
+        }
+        if (state == "Alarm") {
+            // Power-on / limit alarm: position unknown until homed.
+            if (is_homed_) {
+                RCLCPP_WARN(this->get_logger(), "Firmware reports Alarm - robot is no longer homed");
+            }
+            is_homed_ = false;
+            return;
+        }
+        if (state == "Home") {
+            return;  // homing cycle running
+        }
+        if (homing_in_progress_) {
+            // Ignore frames that may predate the $H (sent before the firmware switched state).
+            auto since_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - homing_started_).count();
+            if (since_ms < 1500 || state != "Idle") {
+                return;
+            }
+            homing_in_progress_ = false;
+            is_busy_ = false;
+            RCLCPP_INFO(this->get_logger(), "Homing completed after %.1f s - robot ready", since_ms / 1000.0);
+        }
+        if (!is_homed_) {
+            RCLCPP_INFO(this->get_logger(), "Robot homed (firmware state %s) - publishing joint states", state.c_str());
+        }
+        is_homed_ = true;
     }
 
     void handle_cmd_function(const std_msgs::msg::String::SharedPtr msg) {
@@ -353,7 +391,7 @@ private:
     }
 
     void process_command_queue() {
-        if (command_dispatch_in_progress_ || command_in_flight_ || is_busy_ || command_queue_.empty()) {
+        if (command_dispatch_in_progress_ || command_in_flight_ || is_busy_ || homing_in_progress_ || command_queue_.empty()) {
             return;
         }
 
@@ -558,6 +596,8 @@ private:
     void parse_mirobot_response(const std::string& response) {
         // Parse Mirobot responses to update robot state
         // Common responses: "Info,Idle", "Info,Busy", "Info,Run", "Info,E100,..."
+        // Telemetry frames (O104=1): "<Idle|Alarm|Home|Run,Angle(ABCDXYZ):...>"
+        update_homed_state(firmware_state_of(response));
         
         // Parse response (silent - only errors shown)
 
@@ -651,6 +691,16 @@ private:
                 
                 current_joint_positions_ = reordered_joints;
                 joint_positions_initialized_ = true;
+
+                // Before homing (Alarm) the firmware reports 0 for every joint
+                // regardless of the real pose: publishing that would show a wrong
+                // arm.  Publish only once the position is known.
+                if (!is_homed_) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 10000,
+                        "Not publishing joint states: robot not homed (firmware state %s)",
+                        firmware_state_.empty() ? "unknown" : firmware_state_.c_str());
+                    return;
+                }
                 
                 auto joint_msg = sensor_msgs::msg::JointState();
                 joint_msg.header.stamp = this->now();
@@ -764,9 +814,27 @@ private:
         status_msg.name = robot_name_;
         status_msg.hardware_id = robot_name_;
         
+        // Homing that never reaches Idle: report instead of assuming success.
+        if (homing_in_progress_) {
+            auto since_s = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - homing_started_).count();
+            if (since_s > homing_timeout_seconds_) {
+                homing_in_progress_ = false;
+                is_busy_ = false;
+                has_error_ = true;
+                error_message_ = "Homing did not complete within " + std::to_string(homing_timeout_seconds_) +
+                                 " s (firmware state " + (firmware_state_.empty() ? std::string("unknown") : firmware_state_) + ")";
+                RCLCPP_ERROR(this->get_logger(), "%s", error_message_.c_str());
+            }
+        }
+
         // Determine state and level
         std::string state;
-        if (has_error_) {
+        if (homing_in_progress_) {
+            status_msg.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+            state = "homing";
+            status_msg.message = "Robot homing";
+        } else if (has_error_) {
             status_msg.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
             state = "error";
             status_msg.message = "Robot error";
@@ -869,6 +937,9 @@ private:
     // Robot state tracking
     std::string robot_name_;
     bool is_homed_ = false;
+    bool homing_in_progress_ = false;
+    std::chrono::steady_clock::time_point homing_started_;
+    std::string firmware_state_;   // last telemetry state: Idle, Alarm, Home, Run, ...
     bool is_busy_ = false;
     bool has_error_ = false;
     bool gripper_open_ = false;
