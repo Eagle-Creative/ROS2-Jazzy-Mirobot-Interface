@@ -112,7 +112,8 @@ def main(args=None):
         node.get_logger().info('Shutting down Mirobot Controller Node...')
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():  # already shut down by the SIGINT handler under launch
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

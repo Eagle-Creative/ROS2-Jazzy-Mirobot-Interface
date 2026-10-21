@@ -38,7 +38,7 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': False}],  # wall clock: no /clock without a simulator
         arguments=[urdf_file],
         remappings=[('/joint_states', ['/', LaunchConfiguration('robot_name'), '/joint_states'])],
     )

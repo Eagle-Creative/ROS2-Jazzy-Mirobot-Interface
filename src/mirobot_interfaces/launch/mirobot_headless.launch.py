@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.parameter_descriptions import ParameterValue
 from launch.substitutions import Command, FindExecutable
@@ -21,6 +22,12 @@ def generate_launch_description():
         description='Path to the Mirobot configuration file'
     )
 
+    robot_name_arg = DeclareLaunchArgument(
+        'robot_name',
+        default_value='mirobot_01',
+        description='Robot name = topics.prefix in the config file (joint states on /<robot_name>/joint_states)'
+    )
+
     enable_rviz_arg = DeclareLaunchArgument(
         'enable_rviz',
         default_value='false',
@@ -30,6 +37,7 @@ def generate_launch_description():
     # Get launch configuration values
     config_file = LaunchConfiguration('config_file')
     enable_rviz = LaunchConfiguration('enable_rviz')
+    robot_name = LaunchConfiguration('robot_name')
 
     # Paths from the mirobot_description package
     description_pkg_path = get_package_share_directory("mirobot_description")
@@ -53,10 +61,11 @@ def generate_launch_description():
                 ]),
                 value_type=str
             ),
-            'use_sim_time': True
+            # Real robot: wall clock (sim time would wait for a /clock nobody publishes)
+            'use_sim_time': False
         }],
         remappings=[
-            ('joint_states', 'mirobot_01/joint_states')
+            ('joint_states', [robot_name, '/joint_states'])
         ]
     )
 
@@ -87,10 +96,21 @@ def generate_launch_description():
         parameters=[config_file],
     )
 
+    rviz2 = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config_file],
+        condition=IfCondition(enable_rviz),
+    )
+
     return LaunchDescription([
         config_file_arg,
+        robot_name_arg,
         enable_rviz_arg,
         robot_state_publisher,
+        rviz2,
         gcode_writer_node,
         mirobot_std_functions_node,
         mirobot_controller_node,
