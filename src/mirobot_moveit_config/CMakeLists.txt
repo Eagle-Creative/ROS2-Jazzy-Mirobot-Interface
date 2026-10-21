@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.8)
+project(mirobot_moveit_config)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY urdf srdf config launch tools DESTINATION share/${PROJECT_NAME})
+ament_package()

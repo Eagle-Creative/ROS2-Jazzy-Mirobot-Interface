@@ -3,9 +3,12 @@
 
 /**:
   ros__parameters:
-    # Robot Identification
+    # Robot identification and start-up (one "robot:" block: a second one would
+    # silently replace this one in YAML)
     robot:
       name: "mirobot_01"  # Robot name/identifier (used as topic prefix)
+      perform_homing_on_startup: true  # Set to true to home the robot when the node starts
+      homing_timeout_seconds: 60  # Max time for homing; completion is detected from the firmware (Idle after $H)
 
     # Serial Communication Settings
     serial:
@@ -32,11 +35,6 @@
       res_std_functions: "res_std_functions"
       mirobot_response: "mirobot_response"
       mirobot_status: "status"  # diagnostic_msgs/DiagnosticStatus - robot state and diagnostics
-
-    # Robot Settings
-    robot:
-      perform_homing_on_startup: true  # Set to true to home the robot when the node starts
-      homing_timeout_seconds: 60  # Max time for homing; completion is detected from the firmware (Idle after $H)
 
     # Cartesian Control Settings
     cartesian:
