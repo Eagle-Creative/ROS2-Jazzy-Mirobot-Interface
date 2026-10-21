@@ -55,6 +55,9 @@ def generate_launch_description():
             ),
             'use_sim_time': True
         }],
+        remappings=[
+            ('joint_states', 'mirobot_01/joint_states')
+        ]
     )
 
     # G-code Writer Node (Serial Communication)

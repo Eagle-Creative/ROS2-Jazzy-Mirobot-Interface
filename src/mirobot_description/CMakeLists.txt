@@ -18,7 +18,6 @@ find_package(rosidl_default_generators REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 ament_export_dependencies(rosidl_default_runtime)
-ament_export_dependencies(mirobot_interfaces)
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights

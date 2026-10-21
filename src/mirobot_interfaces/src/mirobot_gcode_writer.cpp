@@ -106,14 +106,19 @@ public:
         // Initialize the diagnostic status publisher
         mirobot_status_publisher_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>(status_topic, 10);
 
+        // Initialize the joint_states publisher for actual robot position feedback
+        // Use the same topic as configured for input joint_states but with prefix
+        std::string joint_states_feedback_topic = prefix + "joint_states";
+        joint_states_publisher_ = this->create_publisher<sensor_msgs::msg::JointState>(joint_states_feedback_topic, 10);
+
         // Create timer to publish status at 2 Hz
         status_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(500),
             std::bind(&MirobotWriteNode::publish_status, this));
 
-        // Poll serial feedback at 10 Hz to consume continuous state updates (e.g., O104=1)
+        // Poll serial feedback at 50 Hz for smooth joint state updates in RViz
         feedback_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(100),
+            std::chrono::milliseconds(20),
             std::bind(&MirobotWriteNode::read_serial_feedback_nonblocking, this));
 
         RCLCPP_INFO(this->get_logger(), "Subscribed to topics: %s, %s, %s", 
@@ -208,7 +213,7 @@ public:
         try {
             std::vector<uint8_t> Gcode(gcode.begin(), gcode.end());
             serial_->send(Gcode);
-            RCLCPP_INFO(this->get_logger(), "GCODE override command received and sent: %s", gcode.c_str());
+            RCLCPP_INFO(this->get_logger(), "Manual G-code sent: %s", gcode.c_str());
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Error sending GCODE override command: %s", e.what());
         }
@@ -236,9 +241,16 @@ public:
 
 private:
     struct QueuedCommand {
+        uint64_t id;
         std::string gcode;
         std::string source;
         double estimated_duration_seconds;
+    };
+
+    enum class MotionPhase {
+        NONE,
+        AWAITING_START,
+        IN_MOTION
     };
 
     void ensure_serial_port_open() {
@@ -252,35 +264,15 @@ private:
         }
     }
 
-    bool send_gcode_and_read_response(const std::string& gcode, const std::string& source) {
+    bool send_gcode(const std::string& gcode, const std::string& source) {
         try {
             std::vector<uint8_t> Gcode(gcode.begin(), gcode.end());
             serial_->send(Gcode);
-            RCLCPP_INFO(this->get_logger(), "Sent %s G-code: %s", source.c_str(), gcode.c_str());
+            // Sent G-code (silent)
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Error sending %s G-code: %s", source.c_str(), e.what());
             return false;
         }
-
-        try {
-            std::vector<uint8_t> buffer(2056);
-            size_t bytes_read = serial_->receive(buffer);
-
-            if (bytes_read > 0) {
-                std::string result(buffer.begin(), buffer.begin() + bytes_read);
-                RCLCPP_INFO(this->get_logger(), "Received: %s", result.c_str());
-                parse_mirobot_response(result);
-
-                auto response_msg = std_msgs::msg::String();
-                response_msg.data = result;
-                mirobot_response_publisher_->publish(response_msg);
-            } else {
-                RCLCPP_WARN(this->get_logger(), "No data received within the timeout period.");
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_ERROR(this->get_logger(), "Error receiving %s response: %s", source.c_str(), e.what());
-        }
-
         return true;
     }
 
@@ -312,31 +304,56 @@ private:
         }
 
         try {
-            std::vector<uint8_t> buffer(2056);
-            size_t bytes_read = serial_->receive(buffer);
-            if (bytes_read == 0) {
-                return;
+            // Read all available data from serial buffer (loop to drain)
+            int reads_done = 0;
+            const int max_reads_per_call = 10; // Limit to avoid blocking too long
+            
+            while (reads_done < max_reads_per_call) {
+                std::vector<uint8_t> buffer(2056);
+                size_t bytes_read = serial_->receive(buffer);
+                if (bytes_read == 0) {
+                    break; // No more data available
+                }
+
+                // Accumulate data in buffer
+                serial_buffer_.append(buffer.begin(), buffer.begin() + bytes_read);
+                reads_done++;
             }
-
-            std::string result(buffer.begin(), buffer.begin() + bytes_read);
-            parse_mirobot_response(result);
-
-            auto response_msg = std_msgs::msg::String();
-            response_msg.data = result;
-            mirobot_response_publisher_->publish(response_msg);
+            
+            // Process complete messages (ending with '>' or '\n')
+            size_t message_end;
+            while ((message_end = serial_buffer_.find('>')) != std::string::npos) {
+                // Extract complete message including '>'
+                std::string complete_message = serial_buffer_.substr(0, message_end + 1);
+                serial_buffer_.erase(0, message_end + 1);
+                
+                // Parse and publish complete message
+                parse_mirobot_response(complete_message);
+                
+                auto response_msg = std_msgs::msg::String();
+                response_msg.data = complete_message;
+                mirobot_response_publisher_->publish(response_msg);
+            }
+            
+            // Prevent buffer from growing indefinitely if no '>' found
+            if (serial_buffer_.size() > 4096) {
+                RCLCPP_WARN(this->get_logger(), "Serial buffer overflow, clearing: %s", serial_buffer_.c_str());
+                serial_buffer_.clear();
+            }
         } catch (const std::exception&) {
             // Expected when no serial data is available within timeout.
         }
     }
 
     void enqueue_command(const std::string& gcode, const std::string& source, double estimated_duration_seconds = 0.0) {
-        command_queue_.push_back({gcode, source, estimated_duration_seconds});
-        RCLCPP_INFO(this->get_logger(), "Queued %s command (queue size: %zu)", source.c_str(), command_queue_.size());
+        uint64_t command_id = next_command_id_++;
+        command_queue_.push_back({command_id, gcode, source, estimated_duration_seconds});
+        // Queued command (silent)
         process_command_queue();
     }
 
     void process_command_queue() {
-        if (command_dispatch_in_progress_ || is_busy_ || command_queue_.empty()) {
+        if (command_dispatch_in_progress_ || command_in_flight_ || is_busy_ || command_queue_.empty()) {
             return;
         }
 
@@ -349,20 +366,57 @@ private:
         command_dispatch_in_progress_ = true;
         QueuedCommand command = command_queue_.front();
         command_queue_.pop_front();
+        active_command_id_ = command.id;
+        active_command_source_ = command.source;
+        command_sent_time_ = std::chrono::steady_clock::now();
 
         if (command.estimated_duration_seconds > 0.0) {
             estimated_movement_duration_ = command.estimated_duration_seconds;
         }
 
-        bool success = send_gcode_and_read_response(command.gcode, command.source);
+        bool success = send_gcode(command.gcode, command.source);
 
         if (!success) {
             has_error_ = true;
             error_message_ = "Failed to send queued command";
             is_busy_ = false;
+            command_in_flight_ = false;
+            motion_phase_ = MotionPhase::NONE;
+            active_command_id_ = 0;
+            active_command_source_.clear();
+        } else {
+            command_in_flight_ = true;
+            // Dispatched command (silent)
+
+            // Motion commands must complete before next dispatch.
+            if (command.source == "cartesian" || command.source == "joint") {
+                is_busy_ = true;
+                has_error_ = false;
+                motion_phase_ = MotionPhase::AWAITING_START;
+                last_movement_time_ = std::chrono::steady_clock::now();
+            } else if (command.source == "endeffector") {
+                // End-effector commands: set busy for 1 second to allow gripper action
+                is_busy_ = true;
+                has_error_ = false;
+                motion_phase_ = MotionPhase::IN_MOTION;
+                last_movement_time_ = std::chrono::steady_clock::now();
+                estimated_movement_duration_ = 1.0;  // 1 second for gripper action
+                RCLCPP_INFO(this->get_logger(), "Endeffector command dispatched, setting busy for 1 second");
+            } else {
+                // Other function commands are treated as immediate.
+                RCLCPP_INFO(this->get_logger(), "Completed command #%lu (%s): immediate", active_command_id_, active_command_source_.c_str());
+                command_in_flight_ = false;
+                motion_phase_ = MotionPhase::NONE;
+                active_command_id_ = 0;
+                active_command_source_.clear();
+            }
         }
 
         command_dispatch_in_progress_ = false;
+
+        if (!is_busy_) {
+            process_command_queue();
+        }
     }
 
     void clear_command_queue(const std::string& reason) {
@@ -453,8 +507,7 @@ private:
         double roll, pitch, yaw;
         quaternion_to_rpy(msg->pose.orientation, roll, pitch, yaw);
 
-        RCLCPP_INFO(this->get_logger(), "Received Cartesian pose: X=%.2f Y=%.2f Z=%.2f Roll=%.2f Pitch=%.2f Yaw=%.2f",
-                    x_mm, y_mm, z_mm, roll, pitch, yaw);
+        // Received Cartesian pose (silent)
 
         // Format the position and orientation values
         char x_str[10], y_str[10], z_str[10], roll_str[10], pitch_str[10], yaw_str[10], speed_str[10];
@@ -474,7 +527,7 @@ private:
         std::string GcodeString = (std::string)"M20 G90 " + move_type + " X" + x_str + " Y" + y_str + " Z" + z_str + 
                                   " A" + roll_str + " B" + pitch_str + " C" + yaw_str + " F" + speed_str + "\r\n";
 
-        RCLCPP_INFO(this->get_logger(), "Generated Cartesian G-code (%s): %s", mode_name.c_str(), GcodeString.c_str());
+        // Generated G-code (silent)
 
         // Calculate estimated movement time based on distance and speed
         double distance = std::sqrt(
@@ -486,10 +539,9 @@ private:
         // Estimate time: distance / speed, add 20% safety margin + 1 second for acceleration
         if (cartesian_speed_ > 0) {
             estimated_movement_duration_ = (distance / cartesian_speed_) * 1.2 + 1.0;
-            // Clamp between 2 and 15 seconds
-            estimated_movement_duration_ = std::max(2.0, std::min(15.0, estimated_movement_duration_));
-            RCLCPP_INFO(this->get_logger(), "Movement: %.1f mm at %.0f mm/s → estimated %.1f seconds", 
-                        distance, cartesian_speed_, estimated_movement_duration_);
+            // Clamp between 2 and 60 seconds
+            estimated_movement_duration_ = std::max(2.0, std::min(60.0, estimated_movement_duration_));
+            // Movement estimation (silent)
         } else {
             estimated_movement_duration_ = 5.0;  // Default if speed not set
         }
@@ -507,7 +559,7 @@ private:
         // Parse Mirobot responses to update robot state
         // Common responses: "Info,Idle", "Info,Busy", "Info,Run", "Info,E100,..."
         
-        RCLCPP_INFO(this->get_logger(), "🔍 PARSING RESPONSE: '%s' (length: %zu)", response.c_str(), response.length());
+        // Parse response (silent - only errors shown)
 
         // Motion_MODE appears in continuous telemetry, but in observed logs it is not
         // a reliable movement-state indicator. Treat it as informational only.
@@ -528,20 +580,126 @@ private:
                 int motion_mode = std::stoi(response.substr(value_start, value_end - value_start));
                 if (motion_mode != last_motion_mode_) {
                     last_motion_mode_ = motion_mode;
-                    RCLCPP_INFO(this->get_logger(), "ℹ️ Telemetry Motion_MODE=%d (informational)", motion_mode);
+                    // Motion mode changed (silent)
                 }
             }
         }
         
+        // Parse joint angles from telemetry response
+        // Format: "Angle(ABCDXYZ):J4,J5,J6,D,J1,J2,J3,Cartesian..."
+        // Telemetry order: [J4, J5, J6, D(rail/gripper), J1, J2, J3] = 7 values
+        size_t angle_start = response.find("Angle(ABCDXYZ):");
+        if (angle_start != std::string::npos) {
+            angle_start += 15;  // Skip "Angle(ABCDXYZ):"
+            
+            // Find the end of angles (before "Cartesian" or next comma-delimited section)
+            size_t angle_end = response.find(",Cartesian", angle_start);
+            if (angle_end == std::string::npos) {
+                angle_end = response.length();
+            }
+            
+            std::string angles_str = response.substr(angle_start, angle_end - angle_start);
+            std::vector<double> parsed_angles;
+            
+            // Parse comma-separated values (up to 7: J4,J5,J6,D,J1,J2,J3)
+            size_t pos = 0;
+            while (pos < angles_str.length() && parsed_angles.size() < 7) {
+                size_t comma_pos = angles_str.find(',', pos);
+                size_t end_pos = (comma_pos != std::string::npos) ? comma_pos : angles_str.length();
+                
+                std::string angle_str = angles_str.substr(pos, end_pos - pos);
+                try {
+                    double angle_deg = std::stod(angle_str);
+                    double angle_rad = angle_deg * M_PI / 180.0;  // Convert to radians
+                    parsed_angles.push_back(angle_rad);
+                } catch (const std::exception& e) {
+                    RCLCPP_WARN(this->get_logger(), "Failed to parse angle: '%s'", angle_str.c_str());
+                    break;
+                }
+                
+                pos = (comma_pos != std::string::npos) ? comma_pos + 1 : angles_str.length();
+            }
+            
+            // Publish if we got at least 6 valid angles
+            // Telemetry order: [J4, J5, J6, D, J1, J2, J3]
+            // We need to reorder to: [J1, J2, J3, J4, J5, J6]
+            if (parsed_angles.size() >= 6) {
+                static bool first_parse = true;
+                if (first_parse) {
+                    RCLCPP_INFO(this->get_logger(), "✅ Joint angle parsing active - receiving telemetry");
+                    first_parse = false;
+                }
+                
+                std::vector<double> reordered_joints(6);
+                if (parsed_angles.size() >= 7) {
+                    // Full telemetry with gripper/rail angle (most common)
+                    reordered_joints[0] = parsed_angles[4];  // J1
+                    reordered_joints[1] = parsed_angles[5];  // J2
+                    reordered_joints[2] = parsed_angles[6];  // J3
+                    reordered_joints[3] = parsed_angles[0];  // J4
+                    reordered_joints[4] = parsed_angles[1];  // J5
+                    reordered_joints[5] = parsed_angles[2];  // J6
+                } else {
+                    // Only 6 values (D axis missing - rare case)
+                    reordered_joints[0] = parsed_angles[3];  // J1
+                    reordered_joints[1] = parsed_angles[4];  // J2
+                    reordered_joints[2] = parsed_angles[5];  // J3
+                    reordered_joints[3] = parsed_angles[0];  // J4
+                    reordered_joints[4] = parsed_angles[1];  // J5
+                    reordered_joints[5] = parsed_angles[2];  // J6
+                }
+                
+                current_joint_positions_ = reordered_joints;
+                joint_positions_initialized_ = true;
+                
+                auto joint_msg = sensor_msgs::msg::JointState();
+                joint_msg.header.stamp = this->now();
+                joint_msg.header.frame_id = "base_link";
+                joint_msg.name = {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
+                joint_msg.position = reordered_joints;
+                
+                joint_states_publisher_->publish(joint_msg);
+            }
+        }
+        
         if (response.find("Idle") != std::string::npos) {
-            RCLCPP_INFO(this->get_logger(), "✅ Status: IDLE detected in response - setting is_busy_ = false");
-            is_busy_ = false;
-            has_error_ = false;
-            last_movement_time_ = std::chrono::steady_clock::time_point::min();  // Clear movement time
+            if (command_in_flight_ && motion_phase_ == MotionPhase::AWAITING_START) {
+                auto since_send_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - command_sent_time_).count();
+                if (since_send_ms < 300) {
+                    RCLCPP_INFO(this->get_logger(), "ℹ️ IDLE while awaiting motion start (%ldms) - ignoring possible stale frame", since_send_ms);
+                } else {
+                    RCLCPP_INFO(this->get_logger(), "✅ IDLE after send (%ldms) - completing command #%lu", since_send_ms, active_command_id_);
+                    is_busy_ = false;
+                    command_in_flight_ = false;
+                    motion_phase_ = MotionPhase::NONE;
+                    has_error_ = false;
+                    last_movement_time_ = std::chrono::steady_clock::time_point::min();
+                    if (active_command_id_ != 0) {
+                        RCLCPP_INFO(this->get_logger(), "Completed command #%lu (%s): idle-after-send", active_command_id_, active_command_source_.c_str());
+                    }
+                    active_command_id_ = 0;
+                    active_command_source_.clear();
+                }
+            } else {
+                // IDLE status detected - clear busy flags
+                is_busy_ = false;
+                command_in_flight_ = false;
+                motion_phase_ = MotionPhase::NONE;
+                has_error_ = false;
+                last_movement_time_ = std::chrono::steady_clock::time_point::min();  // Clear movement time
+                if (active_command_id_ != 0) {
+                    RCLCPP_INFO(this->get_logger(), "Completed command #%lu (%s): idle", active_command_id_, active_command_source_.c_str());
+                }
+                active_command_id_ = 0;
+                active_command_source_.clear();
+            }
         } else if (response.find("Busy") != std::string::npos || response.find("Run") != std::string::npos) {
             RCLCPP_INFO(this->get_logger(), "🔄 Status: BUSY/RUN detected in response - setting is_busy_ = true");
             bool was_busy = is_busy_;
             is_busy_ = true;
+            command_in_flight_ = true;
+            motion_phase_ = MotionPhase::IN_MOTION;
             has_error_ = false;
             if (!was_busy || last_movement_time_ == std::chrono::steady_clock::time_point::min()) {
                 last_movement_time_ = std::chrono::steady_clock::now();  // Record movement start time
@@ -551,13 +709,19 @@ private:
             RCLCPP_WARN(this->get_logger(), "⚠️ Status: ERROR detected in response");
             has_error_ = true;
             is_busy_ = false;
+            command_in_flight_ = false;
+            motion_phase_ = MotionPhase::NONE;
             last_movement_time_ = std::chrono::steady_clock::time_point::min();
             clear_command_queue("Firmware error response");
+            active_command_id_ = 0;
+            active_command_source_.clear();
         } else if (response.find("ok") != std::string::npos) {
             // Robot acknowledges command with "ok" - start movement
             RCLCPP_INFO(this->get_logger(), "✅ Status: OK detected - robot starting movement, setting is_busy_ = true");
             bool was_busy = is_busy_;
             is_busy_ = true;
+            command_in_flight_ = true;
+            motion_phase_ = MotionPhase::IN_MOTION;
             has_error_ = false;
             if (!was_busy || last_movement_time_ == std::chrono::steady_clock::time_point::min()) {
                 last_movement_time_ = std::chrono::steady_clock::now();  // Record movement start time
@@ -573,27 +737,27 @@ private:
         // Status is updated from command responses via parse_mirobot_response()
         // We don't query here to avoid interfering with robot movements
         
-        RCLCPP_INFO(this->get_logger(), "=== STATUS CHECK === is_busy_: %s, is_homed_: %s, has_error_: %s", 
-                     is_busy_ ? "true" : "false", is_homed_ ? "true" : "false", has_error_ ? "true" : "false");
-        
         // If robot was moving, check if enough time has passed to assume it's idle
         if (is_busy_ && last_movement_time_ != std::chrono::steady_clock::time_point::min()) {
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - last_movement_time_).count();
             
-            // Use estimated movement duration (calculated from distance/speed) or default to 10 seconds
-            double timeout = (estimated_movement_duration_ > 0) ? estimated_movement_duration_ : 10.0;
-            
-            RCLCPP_INFO(this->get_logger(), "Movement elapsed time: %ld seconds (timeout at %.1fs)", elapsed, timeout);
+            // Use estimated movement duration (calculated from distance/speed) or default to 30 seconds
+            double timeout = (estimated_movement_duration_ > 0) ? estimated_movement_duration_ : 30.0;
             
             // Assume movement finished after estimated duration
             if (elapsed > timeout) {
                 RCLCPP_INFO(this->get_logger(), "⏰ TIMEOUT: Movement timeout - setting robot to idle");
                 is_busy_ = false;
+                command_in_flight_ = false;
+                motion_phase_ = MotionPhase::NONE;
                 estimated_movement_duration_ = 0.0;  // Reset for next movement
+                if (active_command_id_ != 0) {
+                    RCLCPP_INFO(this->get_logger(), "Completed command #%lu (%s): timeout", active_command_id_, active_command_source_.c_str());
+                }
+                active_command_id_ = 0;
+                active_command_source_.clear();
             }
-        } else if (!is_busy_) {
-            RCLCPP_INFO(this->get_logger(), "Robot is NOT busy");
         }
         
         auto status_msg = diagnostic_msgs::msg::DiagnosticStatus();
@@ -616,12 +780,10 @@ private:
             status_msg.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
             state = "busy";
             status_msg.message = "Robot busy";
-            RCLCPP_INFO(this->get_logger(), "📊 Publishing status: OK - busy");
         } else {
             status_msg.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
             state = "idle";
             status_msg.message = "Robot idle and ready";
-            RCLCPP_INFO(this->get_logger(), "📊 Publishing status: OK - idle");
         }
         
         // Add key-value pairs for additional information
@@ -688,6 +850,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_function_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mirobot_response_publisher_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr mirobot_status_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_publisher_;
     rclcpp::TimerBase::SharedPtr status_timer_;
     rclcpp::TimerBase::SharedPtr feedback_timer_;
     std::string joint_states_topic_name;
@@ -711,14 +874,25 @@ private:
     bool gripper_open_ = false;
     std::string error_message_ = "";
     int last_motion_mode_ = -1;
+    
+    // Current joint positions (in radians) from robot feedback
+    std::vector<double> current_joint_positions_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    bool joint_positions_initialized_ = false;
     std::chrono::steady_clock::time_point last_movement_time_ = std::chrono::steady_clock::time_point::min();
     std::deque<QueuedCommand> command_queue_;
     bool command_dispatch_in_progress_ = false;
+    bool command_in_flight_ = false;
+    MotionPhase motion_phase_ = MotionPhase::NONE;
+    uint64_t next_command_id_ = 1;
+    uint64_t active_command_id_ = 0;
+    std::string active_command_source_;
+    std::chrono::steady_clock::time_point command_sent_time_ = std::chrono::steady_clock::time_point::min();
     
     // Serial port members
     drivers::common::IoContext io_context_;
     drivers::serial_driver::SerialPortConfig serial_config_;
     std::unique_ptr<drivers::serial_driver::SerialPort> serial_;
+    std::string serial_buffer_;  // Buffer for accumulating partial serial messages
 };
 
 int main(int argc, char** argv) {

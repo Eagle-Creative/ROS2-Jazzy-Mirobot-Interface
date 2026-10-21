@@ -1,6 +1,6 @@
 # ROS2-Jazzy Wlkata Mirobot Interface
 
-A comprehensive ROS 2 interface for controlling the Wlkata Mirobot 6-DOF robotic arm with support for joint control, Cartesian positioning, and flexible configuration.
+A ROS 2 - Jazzy interface for controlling the Wlkata Mirobot 6-DOF robotic arm with support for joint control, Cartesian positioning, and flexible configuration.
 
 [![ROS 2 Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-blue)](https://docs.ros.org/en/jazzy/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
