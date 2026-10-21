@@ -39,7 +39,8 @@ class MirobotControllerNode(Node):
         self.create_subscription(EndeffectorState, cmd_endeffector_topic, self.cmd_endeffector_state_callback, 10)
 
         # Publishers
-        self.joint_states_publisher = self.create_publisher(JointState, joint_states_topic, 10)
+        # NOTE: joint_states publisher removed - only mirobot_gcode_writer publishes actual robot feedback
+        # self.joint_states_publisher = self.create_publisher(JointState, joint_states_topic, 10)
         self.endeffector_state_publisher = self.create_publisher(EndeffectorState, endeffector_topic, 10)
 
         # Initialize the latest joint state with default values
@@ -49,9 +50,9 @@ class MirobotControllerNode(Node):
         self.latest_joint_state.velocity = []
         self.latest_joint_state.effort = []
 
-        # Timer to continuously publish the latest joint state
-        timer_period = 1.0 / publish_rate_hz  # Calculate period from rate
-        self.timer = self.create_timer(timer_period, self.publish_latest_joint_state)
+        # Timer to continuously publish removed - joint states come from actual robot telemetry
+        # timer_period = 1.0 / publish_rate_hz  # Calculate period from rate
+        # self.timer = self.create_timer(timer_period, self.publish_latest_joint_state)
 
         self.get_logger().info('Mirobot Controller Node is ready.')
 
@@ -78,20 +79,22 @@ class MirobotControllerNode(Node):
         self.endeffector_state_publisher.publish(msg)
         self.get_logger().info(f"Republished end effector state to 'endeffector_state': {msg.name}, state={msg.state}")
 
-    def publish_latest_joint_state(self):
-        """Continuously publish the latest joint state."""
-        if self.latest_joint_state.name:  # Ensure the latest joint state is not empty
-            # Create a new JointState message
-            joint_state_msg = JointState()
-            joint_state_msg.name = self.latest_joint_state.name
-            joint_state_msg.position = self.latest_joint_state.position
-            joint_state_msg.velocity = self.latest_joint_state.velocity
-            joint_state_msg.effort = self.latest_joint_state.effort
-            joint_state_msg.header.stamp = self.get_clock().now().to_msg()  # Update the timestamp
+    # NOTE: publish_latest_joint_state function disabled - joint states published by mirobot_gcode_writer only
+    # def publish_latest_joint_state(self):
+    #     """Continuously publish the latest joint state."""
+    #     if self.latest_joint_state.name:  # Ensure the latest joint state is not empty
+    #         # Create a new JointState message
+    #         joint_state_msg = JointState()
+    #         joint_state_msg.name = self.latest_joint_state.name
+    #         joint_state_msg.position = self.latest_joint_state.position
+    #         joint_state_msg.velocity = self.latest_joint_state.velocity
+    #         joint_state_msg.effort = self.latest_joint_state.effort
+    #         joint_state_msg.header.stamp = self.get_clock().now().to_msg()  # Update the timestamp
+    #
+    #         # Publish the new JointState message
+    #         self.joint_states_publisher.publish(joint_state_msg)
+    #         # Publishing joint states (silent)
 
-            # Publish the new JointState message
-            self.joint_states_publisher.publish(joint_state_msg)
-            self.get_logger().info(f"Published latest joint states to 'joint_states' topic: {joint_state_msg.position}")
 
     # Placeholder for serial communication logic
     def send_to_mirobot(self, gcode_string):
@@ -109,7 +112,8 @@ def main(args=None):
         node.get_logger().info('Shutting down Mirobot Controller Node...')
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():  # already shut down by the SIGINT handler under launch
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

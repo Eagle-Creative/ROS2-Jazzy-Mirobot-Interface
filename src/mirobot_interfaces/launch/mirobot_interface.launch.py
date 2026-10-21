@@ -3,11 +3,12 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import TimerAction, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, TimerAction, SetEnvironmentVariable
 
 from launch.substitutions import (
     Command,
     FindExecutable,
+    LaunchConfiguration,
     PathJoinSubstitution,
 )
 from launch_ros.parameter_descriptions import ParameterValue
@@ -22,7 +23,18 @@ def generate_launch_description():
     serial_config = os.path.join(description_pkg_path, "config", "rviz_params.yaml")
 
     interfaces_pkg_path = os.path.join(get_package_share_directory("mirobot_interfaces"))
-    mirobot_config = os.path.join(interfaces_pkg_path, "config", "mirobot_config.yaml")
+    config_file_arg = DeclareLaunchArgument(
+        "config_file",
+        default_value=os.path.join(interfaces_pkg_path, "config", "mirobot_config.yaml"),
+        description="Mirobot configuration file",
+    )
+    robot_name_arg = DeclareLaunchArgument(
+        "robot_name",
+        default_value="mirobot_01",
+        description="Robot name = topics.prefix in the config file",
+    )
+    mirobot_config = LaunchConfiguration("config_file")
+    robot_name = LaunchConfiguration("robot_name")
 
 
     # Robot State Publisher Node
@@ -42,8 +54,11 @@ def generate_launch_description():
                 ]),
                 value_type=str
             ),
-            'use_sim_time': True
+            # Real robot: wall clock (sim time would wait for a /clock nobody publishes)
+            'use_sim_time': False
         }],
+        # The driver publishes the real joint angles on /<robot_name>/joint_states
+        remappings=[('joint_states', [robot_name, '/joint_states'])],
     )
 
     # Joint State Publisher GUI Node
@@ -69,6 +84,9 @@ def generate_launch_description():
         executable="mirobot_gui.py",
         name="mirobot_gui",
         output="screen",
+        # The GUI uses relative topic names (cmd_joint_states, cmd_std_functions, ...);
+        # the namespace puts them under the driver's topics.prefix.
+        namespace=robot_name,
     )
 
     # Mirobot Standard Functions Node
@@ -77,6 +95,7 @@ def generate_launch_description():
         executable="mirobot_std_functions.py",
         name="mirobot_std_functions",
         output="screen",
+        parameters=[mirobot_config],   # same topics.prefix as the driver
     )
 
     # Mirobot Controller Node
@@ -85,6 +104,7 @@ def generate_launch_description():
         executable="mirobot_controller.py",
         name="mirobot_controller",
         output="screen",
+        parameters=[mirobot_config],   # same topics.prefix as the driver
     )
 
     # RViz Node (delayed startup)
@@ -102,6 +122,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        config_file_arg,
+        robot_name_arg,
         # Clear GTK-related environment variables to prevent snap library conflicts
         SetEnvironmentVariable('GTK_MODULES', ''),
         SetEnvironmentVariable('GTK3_MODULES', ''),

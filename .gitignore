@@ -52,3 +52,8 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+# Unity export: FBX meshes (large binaries) and generated bundles — see media/unity/README.md
+media/unity/mirobot_fbx/
+media/unity/mirobot_urdf_export/
+media/unity/one_step_bundle/

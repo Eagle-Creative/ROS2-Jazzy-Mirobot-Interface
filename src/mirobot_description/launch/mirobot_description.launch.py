@@ -3,6 +3,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import TimerAction
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from launch.substitutions import (
@@ -13,6 +15,12 @@ from launch.substitutions import (
 
 
 def generate_launch_description():
+
+    robot_name_arg = DeclareLaunchArgument(
+        "robot_name",
+        default_value="mirobot_01",
+        description="Robot namespace for namespaced joint states"
+    )
 
     pkg_path = os.path.join(get_package_share_directory("mirobot_description"))
     rviz_config_file = os.path.join(pkg_path, "rviz", "description.rviz")
@@ -30,8 +38,9 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': False}],  # wall clock: no /clock without a simulator
         arguments=[urdf_file],
+        remappings=[('/joint_states', ['/', LaunchConfiguration('robot_name'), '/joint_states'])],
     )
 
     # serial_node = Node(
@@ -52,6 +61,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        robot_name_arg,
         TimerAction(
             period=3.0,
             actions=[rviz2]
