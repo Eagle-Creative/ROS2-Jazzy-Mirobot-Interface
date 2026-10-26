@@ -5,7 +5,7 @@ Starts robot_state_publisher (model incl. mirobot_tcp) and move_group, both fed 
 Mirobot driver's /<robot_name>/joint_states.  Trajectory execution is off: the Mirobot has no
 ros2_control interface; send planned joint targets through the driver instead (see README).
 
-    ros2 launch mirobot_moveit_config move_group.launch.py tool_length:=0.0365
+    ros2 launch mirobot_moveit_config move_group.launch.py tool_length:=0.035
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -45,7 +45,7 @@ def _nodes(context):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('robot_name', default_value='mirobot_01'),
-        DeclareLaunchArgument('tool_length', default_value='0.0365',
+        DeclareLaunchArgument('tool_length', default_value='0.035',
                               description='Firmware TCP (J6 flange face) to tool tip (m); '
                                           'default: WLKATA suction cup assembly'),
         OpaqueFunction(function=_nodes),

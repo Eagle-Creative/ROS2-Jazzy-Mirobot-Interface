@@ -16,11 +16,12 @@
        real unit: ~230 mm above the mounting surface at home; base_link z 0 = base underside).
 
        tool_length = distance from the firmware point (flange face) to the tool tip.
-       WLKATA suction cup assembly (adapter + vacuum block + cup): 0.0365 (default).
+       WLKATA suction cup assembly (adapter + vacuum block + cup): 0.035 (default; touch-off on a
+       real unit, +-0.5 mm).
        Until 2026-10-26 this said 0.0575 = 52 mm measured from where the orange wrist cover ends,
        assumed 5.5 mm beyond the firmware point; the cover actually ends ~15 mm *before* it, so
        that value was 21 mm too long. -->
-  <xacro:arg name="tool_length" default="0.0365"/>
+  <xacro:arg name="tool_length" default="0.035"/>
   <link name="mirobot_tcp"/>
   <joint name="mirobot_tcp_joint" type="fixed">
     <parent link="Link6"/>
