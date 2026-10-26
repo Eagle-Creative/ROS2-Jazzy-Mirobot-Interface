@@ -255,26 +255,10 @@ public:
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Error sending GCODE override command: %s", e.what());
         }
-
-        // Receive the response from the Mirobot
-        try {
-            std::vector<uint8_t> buffer(1024);
-            size_t bytes_read = serial_->receive(buffer);
-
-            if (bytes_read > 0) {
-                std::string response(buffer.begin(), buffer.begin() + bytes_read);
-                RCLCPP_INFO(this->get_logger(), "Received response from Mirobot: %s", response.c_str());
-
-                // Publish the response to the mirobot_response topic
-                auto response_msg = std_msgs::msg::String();
-                response_msg.data = response;
-                mirobot_response_publisher_->publish(response_msg);
-            } else {
-                RCLCPP_WARN(this->get_logger(), "No data received within the timeout period.");
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_ERROR(this->get_logger(), "Error receiving response from Mirobot: %s", e.what());
-        }
+        // No synchronous read here: read_serial_feedback_nonblocking() owns the serial input
+        // and publishes complete messages on mirobot_response. Reading here took a random
+        // chunk out of the telemetry stream; the reader then stitched the start of one status
+        // frame to the end of another and published wrong joint angles (2026-10-26).
     }
 
 private:
@@ -365,7 +349,8 @@ private:
                 std::string complete_message = serial_buffer_.substr(0, message_end + 1);
                 serial_buffer_.erase(0, message_end + 1);
                 
-                // Parse and publish complete message
+                // Parse and publish complete message (angles are taken from the last
+                // "<...>" frame only, see parse_mirobot_response)
                 parse_mirobot_response(complete_message);
                 
                 auto response_msg = std_msgs::msg::String();
@@ -628,42 +613,57 @@ private:
         // Parse joint angles from telemetry response
         // Format: "Angle(ABCDXYZ):J4,J5,J6,D,J1,J2,J3,Cartesian..."
         // Telemetry order: [J4, J5, J6, D(rail/gripper), J1, J2, J3] = 7 values
-        size_t angle_start = response.find("Angle(ABCDXYZ):");
+        // Angles only from the last complete "<...>" frame: text before it ("ok", error
+        // lines, a partial frame) must not feed the angle list.
+        const size_t frame_start = response.rfind('<');
+        const std::string frame = frame_start != std::string::npos ? response.substr(frame_start) : std::string();
+        size_t angle_start = frame.find("Angle(ABCDXYZ):");
         if (angle_start != std::string::npos) {
             angle_start += 15;  // Skip "Angle(ABCDXYZ):"
             
-            // Find the end of angles (before "Cartesian" or next comma-delimited section)
-            size_t angle_end = response.find(",Cartesian", angle_start);
-            if (angle_end == std::string::npos) {
-                angle_end = response.length();
-            }
-            
-            std::string angles_str = response.substr(angle_start, angle_end - angle_start);
+            // The angle list must end at ",Cartesian" and hold exactly 7 complete numbers
+            // (J4,J5,J6,D,J1,J2,J3). Anything else is a damaged frame: drop it rather than
+            // publish shifted values (2026-10-26: stitched frames showed J1..J3 = 0 and
+            // J6 = 52 deg on an arm standing still).
+            size_t angle_end = frame.find(",Cartesian", angle_start);
             std::vector<double> parsed_angles;
-            
-            // Parse comma-separated values (up to 7: J4,J5,J6,D,J1,J2,J3)
-            size_t pos = 0;
-            while (pos < angles_str.length() && parsed_angles.size() < 7) {
-                size_t comma_pos = angles_str.find(',', pos);
-                size_t end_pos = (comma_pos != std::string::npos) ? comma_pos : angles_str.length();
-                
-                std::string angle_str = angles_str.substr(pos, end_pos - pos);
-                try {
-                    double angle_deg = std::stod(angle_str);
-                    double angle_rad = angle_deg * M_PI / 180.0;  // Convert to radians
-                    parsed_angles.push_back(angle_rad);
-                } catch (const std::exception& e) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to parse angle: '%s'", angle_str.c_str());
-                    break;
+            bool frame_ok = angle_end != std::string::npos;
+            if (frame_ok) {
+                std::string angles_str = frame.substr(angle_start, angle_end - angle_start);
+                size_t pos = 0;
+                while (frame_ok && pos <= angles_str.length()) {
+                    size_t comma_pos = angles_str.find(',', pos);
+                    size_t end_pos = (comma_pos != std::string::npos) ? comma_pos : angles_str.length();
+                    std::string angle_str = angles_str.substr(pos, end_pos - pos);
+                    try {
+                        size_t used = 0;
+                        double angle_deg = std::stod(angle_str, &used);
+                        if (used != angle_str.size()) {
+                            frame_ok = false;  // e.g. "-37.712.714": two frames glued together
+                        } else {
+                            parsed_angles.push_back(angle_deg * M_PI / 180.0);
+                        }
+                    } catch (const std::exception&) {
+                        frame_ok = false;
+                    }
+                    if (comma_pos == std::string::npos) {
+                        break;
+                    }
+                    pos = comma_pos + 1;
                 }
-                
-                pos = (comma_pos != std::string::npos) ? comma_pos + 1 : angles_str.length();
+                frame_ok = frame_ok && parsed_angles.size() == 7;
             }
-            
-            // Publish if we got at least 6 valid angles
+            if (!frame_ok) {
+                // Not published as joint states; the status handling below still runs.
+                ++dropped_frames_;
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 10000,
+                    "Dropped damaged telemetry frame (%llu dropped so far): %s",
+                    static_cast<unsigned long long>(dropped_frames_), frame.substr(0, 120).c_str());
+            }
+
             // Telemetry order: [J4, J5, J6, D, J1, J2, J3]
             // We need to reorder to: [J1, J2, J3, J4, J5, J6]
-            if (parsed_angles.size() >= 6) {
+            if (frame_ok && parsed_angles.size() == 7) {
                 static bool first_parse = true;
                 if (first_parse) {
                     RCLCPP_INFO(this->get_logger(), "✅ Joint angle parsing active - receiving telemetry");
@@ -945,6 +945,7 @@ private:
     bool gripper_open_ = false;
     std::string error_message_ = "";
     int last_motion_mode_ = -1;
+    uint64_t dropped_frames_ = 0;  // damaged/partial telemetry frames not published
     
     // Current joint positions (in radians) from robot feedback
     std::vector<double> current_joint_positions_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
