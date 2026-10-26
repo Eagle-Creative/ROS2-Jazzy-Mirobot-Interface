@@ -275,7 +275,7 @@ ros2 launch mirobot_moveit_config move_group.launch.py         # robot_state_pub
 | Planners | Pilz industrial (`PTP` default, `LIN`, `CIRC`), OMPL |
 | IK | KDL |
 | Joint states | `/<robot_name>/joint_states` (launch argument `robot_name`, default `mirobot_01`) |
-| Tool | launch argument `tool_length` (m), default `0.0575` = standard WLKATA suction cup |
+| Tool | launch argument `tool_length` (m), default `0.035` = WLKATA suction cup assembly |
 
 Note: the headless launch starts its own `robot_state_publisher` with the plain description; when
 running MoveIt alongside, the TFs are identical except for the extra `mirobot_tcp` frame.
@@ -287,11 +287,16 @@ running MoveIt alongside, the TFs are identical except for the extra `mirobot_tc
 - The firmware's own Cartesian point is **8 mm beyond `Link6`'s origin** along the tool axis. At
   home the URDF puts `Link6` at z = 238.7 mm and the firmware reports (198.67, 0, 230.72) mm.
   All six joint directions match the firmware's Cartesian output.
-- `tool_length` is measured **from that firmware point** to the tool tip. The flange seat (where the
-  orange cover of the wrist ends) is 5.5 mm beyond the firmware point, so
-  `tool_length = 0.0055 + flange-to-tip`.
-- Standard WLKATA suction cup: 52 mm flange-to-tip → `tool_length:=0.0575` (the default). For
-  another tool, measure flange-to-tip and add 5.5 mm.
+- That firmware point is the **J6 flange face** where the tool adapter is bolted on (measured: about
+  230 mm above the mounting surface at home, matching the firmware's home Z with z 0 at the base
+  underside). Note that the orange wrist cover ends about 15 mm *above* this face.
+- `tool_length` is measured **from the flange face** to the tool tip. WLKATA suction cup assembly
+  (adapter + vacuum block + cup): `tool_length:=0.035` (the default; touch-off on a real unit,
+  ±0.5 mm). For another tool, measure
+  from the flange face.
+- Correction (2026-10-26): earlier versions used 0.0575 (52 mm from the end of the orange cover,
+  plus 5.5 mm assumed between firmware point and cover end). That was 21 mm too long; a touch-off
+  with it reports a table 21 mm below the base, as stated in older versions of this README.
 
 ### Measured on a real unit
 
@@ -299,10 +304,11 @@ These numbers come from one Mirobot bolted directly to a wooden plate, checked b
 suction cup at known heights and over printed markers with a ruler (±1–2 mm). Check them on your
 own setup before relying on them.
 
-- **Mounting surface below `base_link`:** the plate surface was **21 mm below `base_link` z = 0**
-  (the zero the URDF and the firmware share), constant within ±1 mm at three heights and joint 2
-  angles from 11° to 45°. Model the table at about `z = -0.021` (collision object a millimetre
-  lower) and use the same height for anything placed on it, e.g. calibration markers.
+- **Mounting surface = `base_link` z 0:** `base_link` z = 0 (the zero the URDF and the firmware
+  share) is the underside of the base, so a robot bolted directly to a table has the table at z 0
+  (joint 2 axis measured 127 mm above the table, as in the URDF). Model the table at `z = 0`
+  (collision object a millimetre lower). Older versions of this README said -0.021: that came from a
+  touch-off with a tool length 21 mm too long (see above).
 - **Joint moves are straight lines in joint space:** `M21 G90 G00 X.. Y.. Z.. A.. B.. C..` (joint 1–6
   in degrees) moves all joints simultaneously; the measured path stayed within 0.0004 rad of the
   straight joint-space line. A Pilz `PTP` plan (also a straight joint-space line) is therefore

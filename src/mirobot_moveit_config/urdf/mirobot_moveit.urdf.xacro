@@ -12,12 +12,16 @@
        all six joint directions match the firmware (checked against its Cartesian output).
        mirobot_tcp's Z points along the tool (down at home).
 
-       tool_length = distance from that firmware TCP to the tool tip.  The flange seat (where the
-       orange Link5 cover ends) is 5.5 mm beyond the firmware TCP (Link5/Link6 meshes), so
-         tool_length = 0.0055 + flange-to-tip
-       Standard WLKATA suction cup: 52 mm flange-to-tip (measured) -> 0.0575 (default).
-       Verified on a real unit by hovering the cup at three heights (+-1 mm). -->
-  <xacro:arg name="tool_length" default="0.0575"/>
+       That firmware point is the J6 flange face where the tool adapter is bolted on (measured on a
+       real unit: ~230 mm above the mounting surface at home; base_link z 0 = base underside).
+
+       tool_length = distance from the firmware point (flange face) to the tool tip.
+       WLKATA suction cup assembly (adapter + vacuum block + cup): 0.035 (default; touch-off on a
+       real unit, +-0.5 mm).
+       Until 2026-10-26 this said 0.0575 = 52 mm measured from where the orange wrist cover ends,
+       assumed 5.5 mm beyond the firmware point; the cover actually ends ~15 mm *before* it, so
+       that value was 21 mm too long. -->
+  <xacro:arg name="tool_length" default="0.035"/>
   <link name="mirobot_tcp"/>
   <joint name="mirobot_tcp_joint" type="fixed">
     <parent link="Link6"/>
