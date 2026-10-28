@@ -276,9 +276,12 @@
       link="Link4" />
     <axis
       xyz="0 0 1" />
+    <!-- joint4 upper 2.53 rad (145 deg) as in WLKATA's own URDF
+         (github.com/wlkata/Wlkata_Mirobot_Ros2, joint4 -3.141..2.53); was 3.13. Confirm against
+         the Mirobot manual / firmware soft limits. -->
     <limit
       lower="-3.13"
-      upper="3.13"
+      upper="2.53"
       effort="200"
       velocity="200" />
   </joint>
