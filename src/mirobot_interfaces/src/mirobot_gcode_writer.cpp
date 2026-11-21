@@ -171,6 +171,7 @@ public:
         }
 
         homing_in_progress_ = true;
+        homing_failed_ = false;
         homing_started_ = std::chrono::steady_clock::now();
         is_homed_ = false;            // joint feedback is invalid until homing completes
         is_busy_ = true;
@@ -226,6 +227,13 @@ public:
             RCLCPP_INFO(this->get_logger(), "Homing completed after %.1f s - robot ready", since_ms / 1000.0);
         }
         if (!is_homed_) {
+            // Only Idle or Run show a known position. Not Hold: after a "!" the firmware refuses
+            // every move, $H included, and may report zeros (13 Nov 2026: Hold at connect, the
+            // writer called it homed, homing never ran, joint states of all zeros went out).
+            // Not after a homing that timed out either: only a completed homing clears that.
+            if (homing_failed_ || (state != "Idle" && state != "Run")) {
+                return;
+            }
             RCLCPP_INFO(this->get_logger(), "Robot homed (firmware state %s) - publishing joint states", state.c_str());
         }
         is_homed_ = true;
@@ -820,6 +828,8 @@ private:
                 std::chrono::steady_clock::now() - homing_started_).count();
             if (since_s > homing_timeout_seconds_) {
                 homing_in_progress_ = false;
+                homing_failed_ = true;   // position unknown: no joint states until a homing completes
+                is_homed_ = false;
                 is_busy_ = false;
                 has_error_ = true;
                 error_message_ = "Homing did not complete within " + std::to_string(homing_timeout_seconds_) +
@@ -864,6 +874,13 @@ private:
         kv_homed.key = "is_homed";
         kv_homed.value = is_homed_ ? "true" : "false";
         status_msg.values.push_back(kv_homed);
+
+        if (has_error_ && !error_message_.empty()) {
+            diagnostic_msgs::msg::KeyValue kv_error;
+            kv_error.key = "error_message";
+            kv_error.value = error_message_;
+            status_msg.values.push_back(kv_error);
+        }
         
         diagnostic_msgs::msg::KeyValue kv_gripper;
         kv_gripper.key = "gripper_open";
@@ -938,6 +955,9 @@ private:
     std::string robot_name_;
     bool is_homed_ = false;
     bool homing_in_progress_ = false;
+    // A requested homing ($H) that did not finish: the position stays unknown until the next
+    // homing completes, whatever state the firmware reports meanwhile.
+    bool homing_failed_ = false;
     std::chrono::steady_clock::time_point homing_started_;
     std::string firmware_state_;   // last telemetry state: Idle, Alarm, Home, Run, ...
     bool is_busy_ = false;
